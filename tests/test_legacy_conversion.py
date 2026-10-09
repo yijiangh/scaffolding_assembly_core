@@ -66,8 +66,10 @@ def test_plan_checks(converted):
 
 
 def test_jointing_and_release(converted):
-    """B10: mount, grasp, transfer, one insert that builds the bar; the release ungrasps (form B, backing the jointing
-    screws off), then retreats. Movements are named by their role, and `on` changes in targets."""
+    """B10: mount, grasp, transfer, one insert that builds the bar; the release ungrasps (form B), then retreats.
+
+    The ungrasp backs the jointing screws off; movements are named by role, and `on` changes in targets.
+    """
     _, design = converted
     assert [m.id for m in design.actions["B10_J"].movements] == [
         "B10_J_load", "B10_J_mount", "B10_J_grasp", "B10_J_transfer", "B10_J_insert"]
