@@ -46,4 +46,4 @@ Copied from `yijiangh/husky-assembly-teleop`, branch `jg/viser-cleanup`, commit
 - tests: `tests/conftest.py` skips modules whose extras are missing; the legacy conversion test reads its robot files
   from `HUSKY_DATA`; the 3.9 mirror test installs compas_fab from git and is marked slow.
 
-Known gap: `writer.library` is still `"design_io"` (`design/version.py`).
+CI (`.github/workflows/tests.yml`) runs the quick set on Python 3.9 with Rhino's pins and on 3.10.

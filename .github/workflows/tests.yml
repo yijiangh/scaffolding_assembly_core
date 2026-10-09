@@ -1,0 +1,24 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  quick:
+    runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        include:
+          # * Rhino 8's CPython and the pins known to work there.
+          - python: "3.9"
+            pins: "numpy==1.24.4 scipy==1.13.1 trimesh==4.12.2"
+          - python: "3.10"
+            pins: ""
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: pip install ${{ matrix.pins }} -e ".[test]"
+      - run: python -m pytest
