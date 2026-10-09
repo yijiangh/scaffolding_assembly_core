@@ -1,6 +1,7 @@
 """
-Scenes from a design: the world at one movement (`scene_at`), or once a bar is built (`scene_after`); `seeded` makes
-one plannable for a robot the design leaves open.
+Scenes from a design: the world at one movement (`scene_at`), or once a bar is built (`scene_after`).
+
+`seeded` makes a scene plannable for a robot whose base or joints the design leaves open.
 
 A scene shares nothing mutable with the design: bodies, robots, joints and touches are new; only `Geometry` and
 `RobotModel` objects are shared, and a robot's model is the same object for every scene of the same robot.

@@ -62,8 +62,10 @@ def test_mate_status(design):
 
 
 def test_allowed_contacts_are_derived(design):
-    """At B2's insert: tools with their body's whole part, halves with their bars, a pending or engaged mate's halves
-    with each other and with each other's bar, wheels with ground."""
+    """At B2's insert: tools with their whole part, halves with their bars, mates with each other's bar, wheels.
+
+    A pending or engaged mate's halves touch each other and each other's bar.
+    """
     contacts = allowed_contacts(design, _start(design, "B2_M3_insert"))
     assert contacts == {
         ("joints/J1_male", "tools/AT3L"), ("bars/B2", "tools/AT3L"),

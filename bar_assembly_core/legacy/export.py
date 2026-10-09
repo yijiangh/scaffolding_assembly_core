@@ -715,8 +715,7 @@ class _Converter:
 
 
 def _role(action_type: str, kind: str, grips: Dict[str, str], merged: bool, mounted: bool) -> str:
-    """A movement's role in its id, as Rhino names them: load, mount, grasp, transfer, insert; ungrasp, retreat, home;
-    approach, open, to_grasp, close; open, retreat, leave."""
+    """A movement's role in its id, as Rhino names them (format §3.1), e.g. "insert" or "to_grasp"."""
     if merged:
         return "insert"
     if kind == "manual":
