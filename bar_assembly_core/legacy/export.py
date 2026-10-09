@@ -68,6 +68,10 @@ _CONTROLLERS = {"joint_tracking": "position", "cartesian_compliant": "compliant"
 #: Schema 1 tool action -> the grip it ends with; "tighten" becomes a drive, "untighten" a drive of the next ungrasp.
 _GRIPS = {"grasp": "closed", "close": "closed", "ungrasp": "open", "open": "open"}
 
+#: The converter's name and version, written as the design's `producer.command`. ! Bump the number whenever the
+#: output changes: converted copies made by another version are converted again (`conversion.is_up_to_date`).
+CONVERTER = "legacy.export.from_export/2"
+
 #: Action type -> the code in its id, e.g. "B10_J" (format §3.1).
 ACTION_CODES = {"bar_jointing": "J", "bar_release": "R", "bar_holding": "H", "bar_holding_release": "HR"}
 
@@ -202,7 +206,7 @@ def from_export(export: Export, robot_files: Mapping[str, Tuple[Path, Path]],
     parts = {body.part for body in converter.bodies.values()}
     return Design(folder=None, writer=writer, robots=converter.robots, tools=converter.tools,
                   bodies=converter.bodies, schedule=tuple(design_actions), actions=design_actions, mates=mates,
-                  producer=Producer("bar_assembly_core", writer.commit, writer.dirty, "legacy.export.from_export"),
+                  producer=Producer("bar_assembly_core", writer.commit, writer.dirty, CONVERTER),
                   parts={name: PartSpec(seat) for name, seat in PART_SEATS.items() if name in parts})
 
 
