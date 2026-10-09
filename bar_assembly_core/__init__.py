@@ -7,7 +7,8 @@ Layers, each importing only the ones above it:
     robot, scene      RobotModel, RobotObject; Body, Scene: the world at one moment
     design            the file format and its file checks; design.scenes turns a design into scenes,
                       design.plan_check runs the plan checks, design.solutions reads and writes planner results
-    mirrors           a scene in PyBullet or compas_fab, for planners             + pybullet, compas_fab
+    mirrors           a scene in PyBullet or compas_fab, for planners; a compas_fab  + pybullet, compas_fab
+                      cell to draw (mirrors.cell, no PyBullet)
     legacy            the old compas_fab export (optional)                       + compas, rs_data_structure
 
 - ! Imports nothing from `husky_assembly_teleop`, ROS or viser (`tests/test_core_isolation.py`).

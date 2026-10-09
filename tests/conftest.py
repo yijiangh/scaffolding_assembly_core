@@ -6,6 +6,7 @@ from importlib.util import find_spec
 _NEEDS = {
     "test_geometry.py": ("compas", "compas_fab"),
     "test_compas_planning_group.py": ("compas", "compas_fab", "compas_robots"),
+    "test_compas_cell.py": ("compas", "compas_fab", "compas_robots", "pybullet"),
     "test_legacy_guards.py": ("compas", "compas_robots", "compas_fab", "rs_data_structure"),
     "test_legacy_conversion.py": ("compas", "compas_fab", "rs_data_structure"),
 }

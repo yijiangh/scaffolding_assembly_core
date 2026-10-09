@@ -6,7 +6,8 @@ The shared core of the bar assembly tools, used by the Rhino plugin (`bar_joint_
 - `design/`: the design format, schema 2 (`doc/design_format.md`): `read`, `write`, `validate` (file checks A1–A14),
   `plan_check.check_plan` (plan checks B1–B14), `relations`, `scenes` (`Design.scene_at`), `solutions`;
 - `geometry`, `ids`, `urdf`, `kinematics` (`link_pose`, numpy only), `robot`, `scene`;
-- `mirrors/`: a scene in PyBullet or compas_fab, for planners (extra `[mirrors]`);
+- `mirrors/`: a scene in PyBullet or compas_fab, for planners, and its compas_fab cell without PyBullet, for viewers
+  (`mirrors.cell.CompasFabCell(robot, visual=True)`) (extra `[mirrors]`);
 - `legacy/`: converts the old compas_fab export into schema 2 (extra `[mirrors]` plus `rs_data_structure`).
 
 The layers and their import rules are in `bar_assembly_core/__init__.py`.
