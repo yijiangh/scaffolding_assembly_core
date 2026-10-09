@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Dict, FrozenSet, List, Mapping, Optional, Sequence, Tuple
 
 from .geometry import Geometry, Pose
-from .urdf import TOOL_TOUCHES_ARM_LINKS, stock_frame_problem, urdf_joints, urdf_links
+from .urdf import TOOL_TOUCHES_ARM_LINKS, link_geometry, stock_frame_problem, urdf_joints, urdf_links
 from .urdf import movable_joints as srdf_movable_joints
 
 #: Suffix of the links tools mount on (UR convention: "<arm>_tool0").
@@ -66,6 +66,14 @@ class RobotModel:
     def links(self) -> FrozenSet[str]:
         """frozenset[str]: Every link name of the URDF (tools are not links)."""
         return frozenset(urdf_links(self.urdf))
+
+    @cached_property
+    def link_geometry(self) -> Mapping[str, Geometry]:
+        """dict[str, Geometry]: Link -> its URDF shapes in the link frame (`urdf.link_geometry`), read on first use.
+
+        ! Mesh paths must resolve without packages (relative, absolute or `file://`), as in a design's URDF.
+        """
+        return link_geometry(self.urdf)
 
     @cached_property
     def movable_joints(self) -> Tuple[str, ...]:

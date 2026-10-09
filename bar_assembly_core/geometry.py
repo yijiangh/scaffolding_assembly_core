@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Union
 
 import numpy as np
 from scipy.spatial.transform import Rotation
-from trimesh import Trimesh
+from trimesh import Trimesh, load
 from trimesh.creation import box, cylinder
 
 if TYPE_CHECKING:
@@ -168,6 +168,13 @@ def shape_mesh(shape: Shape) -> TriMesh:
     else:
         mesh = cylinder(radius=shape.radius, height=shape.height, sections=CYLINDER_SECTIONS)
     mesh.apply_transform(shape.origin.matrix())
+    return TriMesh.from_arrays(mesh.vertices, mesh.faces)
+
+
+def read_mesh(path) -> TriMesh:
+    """Read one mesh file (.obj, .stl or .glb) as triangles, without merging or cleaning; a file of several parts
+    becomes one mesh."""
+    mesh = load(str(path), force="mesh", process=False)
     return TriMesh.from_arrays(mesh.vertices, mesh.faces)
 
 

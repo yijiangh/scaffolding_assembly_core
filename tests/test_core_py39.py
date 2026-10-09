@@ -10,7 +10,7 @@ import pytest
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 CORE = PACKAGE_ROOT / "bar_assembly_core"
-#: Pure-core modules: they must import with numpy, scipy and trimesh alone.
+#: Pure-core modules: they must import with numpy, scipy, trimesh and yourdfpy alone.
 PURE = ("bar_assembly_core", "bar_assembly_core.geometry", "bar_assembly_core.ids", "bar_assembly_core.urdf",
         "bar_assembly_core.kinematics", "bar_assembly_core.robot", "bar_assembly_core.scene",
         "bar_assembly_core.design", "bar_assembly_core.legacy", "bar_assembly_core.legacy.timing",
@@ -21,7 +21,8 @@ EXTRAS = ("bar_assembly_core.mirrors",
           "bar_assembly_core.mirrors.compas", "bar_assembly_core.mirrors.pp_client",
           "bar_assembly_core.mirrors.pybullet",
           "bar_assembly_core.mirrors.compas_fab")
-CORE_PACKAGES = ("numpy", "scipy", "trimesh==4.12.2")
+#: The pure core's dependencies, at Rhino's pins.
+CORE_PACKAGES = ("numpy", "scipy", "trimesh==4.12.2", "yourdfpy==0.0.60")
 #: The mirrors extra (pyproject.toml); compas_fab from its `wip_process` branch.
 COMPAS_FAB = "compas_fab @ git+https://github.com/compas-dev/compas_fab.git@995122dd467415971ca842772573a07d6c942145"
 EXTRA_PACKAGES = ("pybullet", "compas_robots", COMPAS_FAB, "pybullet_planning==0.6.1", "roslibpy==1.8.1")
@@ -59,7 +60,7 @@ def _run_39(packages: tuple, modules: tuple, extra_check: str = "") -> None:
 
 
 def test_core_imports_under_python_39():
-    """The pure core imports and runs under Python 3.9 with only numpy, scipy and trimesh, without compas.
+    """The pure core imports and runs under Python 3.9 with only numpy, scipy, trimesh and yourdfpy, without compas.
 
     It writes, reads and plan-checks the test design, and builds a scene of it.
     """
@@ -72,7 +73,9 @@ def test_core_imports_under_python_39():
            "assert check_plan(design).ok\n"
            "scene = design.scene_at(next(movement for _, movement in design.movements()))\n"
            "assert 'bars/B2' in scene.world_poses and scene.robots['robots/cindy'].unmeasured\n"
-           "assert 'compas' not in sys.modules and 'yourdfpy' not in sys.modules\n")
+           "from bar_assembly_core.scene import scene_parts\n"
+           "assert 'robots/cindy/base_link' in {part_id for part_id, _, _ in scene_parts(scene)}\n"
+           "assert 'compas' not in sys.modules\n")
     _run_39(CORE_PACKAGES, PURE, run)
 
 

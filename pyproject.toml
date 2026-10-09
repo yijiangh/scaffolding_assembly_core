@@ -4,12 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bar_assembly_core"
-version = "0.2.0"
+version = "0.3.0"
 description = "Shared core of the bar assembly tools: design format schema 2, robots, scenes and their mirrors"
 readme = "README.md"
 requires-python = ">=3.9"
-# * Pins that Rhino 8's CPython 3.9 is known to work with: numpy 1.24.4, scipy 1.13.1, trimesh 4.12.2.
-dependencies = ["numpy", "scipy", "trimesh"]
+# * Pins that Rhino 8's CPython 3.9 is known to work with: numpy 1.24.4, scipy 1.13.1, trimesh 4.12.2, yourdfpy 0.0.60
+#   (with lxml 6.1.3, six 1.17.0). ? yourdfpy asks for `trimesh[easy]` but reads URDFs without those extras.
+dependencies = ["numpy", "scipy", "trimesh", "yourdfpy"]
 
 [project.optional-dependencies]
 # * mirrors/ and legacy/. compas_fab comes from its `wip_process` branch: the PyPI release lacks `RigidBody`.

@@ -12,10 +12,11 @@ applied last: poses, joints, `enabled` and attachments by value; `Geometry` and 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Callable, Dict, Mapping, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Callable, Dict, Iterator, Mapping, Optional, Tuple, Union
 
 from .geometry import Pose, compose
-from .ids import ROBOTS, IdMap, check_id
+from .ids import ROBOTS, IdMap, check_id, link_id
+from .kinematics import link_poses
 from .robot import RobotModel, RobotObject
 
 if TYPE_CHECKING:
@@ -166,6 +167,38 @@ def world_poses(bodies: Mapping[str, Body], robots: Mapping[str, RobotObject],
     for body_id in bodies:
         resolve(body_id, frozenset())
     return {body_id: pose for body_id, pose in poses.items() if pose is not None}
+
+
+#: One thing a viewer draws: (id, geometry, world pose).
+Part = Tuple[str, "Geometry", Pose]
+
+
+def robot_parts(robot: RobotObject, poses: Optional[Mapping[str, Pose]] = None) -> Iterator[Part]:
+    """What to draw of one robot: each link that has shapes, and each mounted tool at its flange.
+
+    Ids are link ids ("robots/cindy/left_ur_arm_wrist_3_link") and tool ids ("tools/AT3L").
+
+    Args:
+        robot: The robot, enabled or not (callers skip absent ones).
+        poses: Link name -> world pose, e.g. from live kinematics; None: computed from `base` and `joints`.
+    """
+    model = robot.model
+    if poses is None:
+        poses = link_poses(model.urdf, robot.base, robot.joints, set(model.link_geometry) | set(model.tools))
+    for link, geometry in model.link_geometry.items():
+        yield link_id(robot.id, link), geometry, poses[link]
+    for flange, tool in model.tools.items():
+        yield tool.id, tool.geometry, poses[flange]
+
+
+def scene_parts(scene: Scene) -> Iterator[Part]:
+    """Everything a viewer draws of a scene: enabled bodies with a world pose, then enabled robots' parts."""
+    for body_id, body in scene.bodies.items():
+        if body.enabled and body_id in scene.world_poses:
+            yield body_id, body.geometry, scene.world_poses[body_id]
+    for robot in scene.robots.values():
+        if robot.enabled:
+            yield from robot_parts(robot)
 
 
 def retarget(attachments: Mapping[str, Attachment], robot_map: IdMap,

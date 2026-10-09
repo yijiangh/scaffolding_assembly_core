@@ -5,15 +5,17 @@ The shared core of the bar assembly tools, used by the Rhino plugin (`bar_joint_
 
 - `design/`: the design format, schema 2 (`doc/design_format.md`): `read`, `write`, `validate` (file checks A1–A14),
   `plan_check.check_plan` (plan checks B1–B14), `relations`, `scenes` (`Design.scene_at`), `solutions`;
-- `geometry`, `ids`, `urdf`, `kinematics` (`link_pose`, numpy only), `robot`, `scene`;
+- `geometry`, `ids`, `urdf` (URDFs read with yourdfpy: names, joints, each link's shapes), `kinematics`
+  (`link_pose`, `link_poses`), `robot`, `scene` (`scene_parts`: what a viewer draws);
 - `mirrors/`: a scene in PyBullet or compas_fab, for planners, and its compas_fab cell without PyBullet, for viewers
   (`mirrors.cell.CompasFabCell(robot, visual=True)`) (extra `[mirrors]`);
 - `legacy/`: converts the old compas_fab export into schema 2 (extra `[mirrors]` plus `rs_data_structure`).
 
 The layers and their import rules are in `bar_assembly_core/__init__.py`.
 
-- ! Runs on Python 3.9 (Rhino 8's CPython) with numpy, scipy and trimesh only; known good pins: numpy 1.24.4,
-  scipy 1.13.1, trimesh 4.12.2.
+- ! Runs on Python 3.9 (Rhino 8's CPython) with numpy, scipy, trimesh and yourdfpy only; known good pins: numpy
+  1.24.4, scipy 1.13.1, trimesh 4.12.2, yourdfpy 0.0.60 with lxml 6.1.3 and six 1.17.0. yourdfpy asks for
+  `trimesh[easy]`; it needs none of those extras (`pip install --no-deps yourdfpy lxml six` where they fail).
 - ! Imports nothing from the monitor, ROS or viser.
 
 ## Install

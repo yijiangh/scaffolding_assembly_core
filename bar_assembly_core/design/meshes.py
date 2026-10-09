@@ -10,15 +10,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Dict
 
-from trimesh import Trimesh, load
+from trimesh import Trimesh
 
-from ..geometry import TriMesh
-
-
-def read_mesh(path: Path) -> TriMesh:
-    """Read one mesh file (.obj, .stl or .glb) as triangles, without merging or cleaning."""
-    mesh = load(str(path), force="mesh", process=False)
-    return TriMesh.from_arrays(mesh.vertices, mesh.faces)
+from ..geometry import TriMesh, read_mesh  # noqa: F401  (read_mesh is part of this module's interface)
 
 
 def write_mesh(mesh: TriMesh, path: Path) -> None:

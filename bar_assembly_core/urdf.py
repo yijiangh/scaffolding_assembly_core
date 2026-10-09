@@ -1,24 +1,35 @@
 """
 URDF and SRDF files, and the conventions of the UR arms every user of the core shares.
 
-Names, groups, mesh references and copying, in plain `xml.etree` (runs in Rhino too).
+URDFs are read with yourdfpy (`load_urdf`, as the monitor's viewer does): names, joints, mesh references and each
+link's shapes (`link_geometry`). SRDFs, copying and path rewriting use plain `xml.etree`, so comments survive.
 
 ! A design URDF's mesh paths are relative to the URDF: resolve them against its folder, not the working directory.
 """
 
 from __future__ import annotations
 
+import os
 import shutil
 from hashlib import sha256
 from io import BytesIO
 from pathlib import Path, PurePath
-from typing import Dict, List, Optional, Sequence, Tuple
+from threading import Lock
+from typing import Dict, Optional, Sequence, Tuple
 from xml.etree.ElementTree import Element, ElementTree, TreeBuilder, XMLParser, parse, tostring
 
 import numpy as np
 from scipy.spatial.transform import Rotation
+from trimesh.creation import icosphere
+from yourdfpy import URDF
+
+from .geometry import BoxShape, CylinderShape, Geometry, Pose, Shape, TriMesh, read_mesh
 
 PACKAGE_SCHEME, FILE_SCHEME = "package://", "file://"
+
+
+class URDFReadError(ValueError):
+    """A URDF that is well-formed XML but not a robot yourdfpy can read (e.g. a joint without a parent)."""
 
 
 # --- --- --- --- --- READING --- --- --- --- ---
@@ -29,14 +40,46 @@ def _root(path: Path) -> Element:
     return parse(str(path), parser=parser).getroot()
 
 
+#: Resolved path -> ((mtime_ns, size), parsed URDF).
+_URDFS: Dict[Path, Tuple[Tuple[int, int], URDF]] = {}
+_URDFS_LOCK = Lock()
+
+
+def load_urdf(urdf: Path) -> URDF:
+    """A URDF parsed by yourdfpy, without meshes; parsed again only when the file changes.
+
+    - ! Shared by every caller: never pose it (`update_cfg`) or change it. For forward kinematics use `kinematics`.
+    - ? Checked as strict XML first: yourdfpy recovers from broken XML instead of failing.
+
+    Raises:
+        xml.etree.ElementTree.ParseError: If the file is not well-formed XML.
+        URDFReadError: If yourdfpy cannot read it as a robot.
+    """
+    path = Path(urdf).resolve()
+    status = os.stat(path)
+    stamp = (status.st_mtime_ns, status.st_size)
+    cached = _URDFS.get(path)
+    if cached is not None and cached[0] == stamp:
+        return cached[1]
+    parse(str(path))
+    try:
+        model = URDF.load(str(path), build_scene_graph=False, build_collision_scene_graph=False,
+                          load_meshes=False, load_collision_meshes=False)
+    except Exception as error:  # noqa: BLE001  (yourdfpy raises AttributeError, KeyError, ... on a broken robot)
+        raise URDFReadError(f"{path.name}: yourdfpy cannot read it ({type(error).__name__}: {error})") from error
+    with _URDFS_LOCK:
+        _URDFS[path] = (stamp, model)
+    return model
+
+
 def urdf_links(urdf: Path) -> set[str]:
     """Every link name of a URDF."""
-    return {link.get("name") for link in _root(urdf).findall("link")}
+    return set(load_urdf(urdf).link_map)
 
 
 def urdf_joints(urdf: Path) -> dict[str, str]:
     """Joint name -> type ("revolute", "fixed", ...) of a URDF, in file order."""
-    return {joint.get("name"): joint.get("type") for joint in _root(urdf).findall("joint")}
+    return {joint.name: joint.type for joint in load_urdf(urdf).robot.joints}
 
 
 def movable_joints(urdf: Path, srdf: Path) -> tuple[str, ...]:
@@ -47,9 +90,8 @@ def movable_joints(urdf: Path, srdf: Path) -> tuple[str, ...]:
         srdf: The SRDF file of the same robot.
     """
     passive = {joint.get("name") for joint in _root(srdf).findall("passive_joint")}
-    return tuple(joint.get("name") for joint in _root(urdf).findall("joint")
-                 if joint.get("type") != "fixed" and joint.get("name") not in passive
-                 and joint.find("mimic") is None)
+    return tuple(joint.name for joint in load_urdf(urdf).robot.joints
+                 if joint.type != "fixed" and joint.name not in passive and joint.mimic is None)
 
 
 def srdf_group_tips(srdf: Path) -> dict[str, str]:
@@ -63,8 +105,10 @@ def srdf_group_tips(srdf: Path) -> dict[str, str]:
 
 
 def mesh_references(urdf: Path) -> list[str]:
-    """The `filename` of every `<mesh>` in a URDF, as written, in file order (repeats included)."""
-    return [mesh.get("filename", "") for mesh in _root(urdf).iter("mesh")]
+    """The `filename` of every `<mesh>` in a URDF, as written, link by link, visuals first (repeats included)."""
+    return [element.geometry.mesh.filename or "" for link in load_urdf(urdf).robot.links
+            for element in (*link.visuals, *link.collisions)
+            if element.geometry is not None and element.geometry.mesh is not None]
 
 
 def is_relative_reference(filename: str) -> bool:
@@ -122,16 +166,10 @@ def _locate(filename: str, urdf_folder: Path, package_dirs: Sequence[Path]) -> T
     Raises:
         FileNotFoundError: If the package or the file is missing.
     """
+    source = resolve_mesh(filename, urdf_folder, package_dirs)
     if filename.startswith(PACKAGE_SCHEME):
-        package, _, rest = filename[len(PACKAGE_SCHEME):].partition("/")
-        package_dir = _find_package(package, package_dirs)
-        if package_dir is None:
-            raise FileNotFoundError(f"mesh {filename!r}: package {package!r} not found in {list(package_dirs)}")
-        source, below = package_dir / rest, f"{package}/{rest}"
+        below = filename[len(PACKAGE_SCHEME):]
     else:
-        path = Path(filename[len(FILE_SCHEME):] if filename.startswith(FILE_SCHEME) else filename)
-        source = path if path.is_absolute() else (urdf_folder / path)
-        source = source.resolve()
         # ? A design's own URDF already keeps its meshes under `meshes/`: keep that path, or a rewrite nests it again.
         for base in (urdf_folder.resolve() / "meshes", urdf_folder.resolve()):
             try:
@@ -141,9 +179,28 @@ def _locate(filename: str, urdf_folder: Path, package_dirs: Sequence[Path]) -> T
                 continue
         else:
             below = _without_anchor(source)
+    return source, below
+
+
+def resolve_mesh(filename: str, urdf_folder: Path, package_dirs: Sequence[Path] = ()) -> Path:
+    """The file a `<mesh filename=...>` names: `package://` in `package_dirs`, `file://`, absolute, or relative to
+    the URDF's folder.
+
+    Raises:
+        FileNotFoundError: If the package or the file is missing.
+    """
+    if filename.startswith(PACKAGE_SCHEME):
+        package, _, rest = filename[len(PACKAGE_SCHEME):].partition("/")
+        package_dir = _find_package(package, package_dirs)
+        if package_dir is None:
+            raise FileNotFoundError(f"mesh {filename!r}: package {package!r} not found in {list(package_dirs)}")
+        source = package_dir / rest
+    else:
+        path = Path(filename[len(FILE_SCHEME):] if filename.startswith(FILE_SCHEME) else filename)
+        source = (path if path.is_absolute() else (Path(urdf_folder) / path)).resolve()
     if not source.is_file():
         raise FileNotFoundError(f"mesh {filename!r} not found (looked at {source})")
-    return source, below
+    return source
 
 
 def _robot_copy(urdf: Path, srdf: Path, package_dirs: Sequence[Path]) -> Tuple[bytes, bytes, Dict[str, Path]]:
@@ -219,6 +276,96 @@ def robot_files_hash(urdf: Path, srdf: Path, package_dirs: Sequence[Path] = ()) 
     return _FILES_HASHES[key]
 
 
+# --- --- --- --- --- LINK GEOMETRY --- --- --- --- ---
+
+#: Subdivisions of the icosphere a URDF `<sphere>` becomes (the core has no sphere shape).
+SPHERE_SUBDIVISIONS = 2
+
+#: (urdf path, stamp, package dirs) -> (link -> Geometry, {mesh file: its stamp when read}).
+_LINK_GEOMETRY: Dict[tuple, Tuple[Dict[str, Geometry], Dict[Path, Tuple[int, int]]]] = {}
+#: (mesh path, (mtime_ns, size), scale, origin) -> TriMesh: robots sharing a mesh file share the object.
+_MESHES: Dict[tuple, TriMesh] = {}
+
+
+def link_geometry(urdf: Path, package_dirs: Sequence[Path] = ()) -> Dict[str, Geometry]:
+    """Each link's shapes from its `<visual>` and `<collision>` elements, in the link frame, metres.
+
+    Meshes are read with trimesh, scaled, and their `<origin>` applied to the vertices; boxes and cylinders keep
+    theirs; spheres become icospheres. Links with neither element are left out.
+
+    - ! The same objects while the URDF and its meshes are unchanged: mirrors and viewers cache per object.
+    - ? Material colours are not read: `Geometry` has none.
+
+    Args:
+        urdf: The URDF.
+        package_dirs: Folders holding packages named by `package://` (a design's URDF needs none).
+
+    Returns:
+        dict[str, Geometry]: Link name -> its shapes.
+
+    Raises:
+        FileNotFoundError: If a mesh (or its package) is missing.
+        xml.etree.ElementTree.ParseError, URDFReadError: As `load_urdf`.
+    """
+    path = Path(urdf).resolve()
+    model = load_urdf(path)
+    key = (path, _URDFS[path][0], tuple(str(Path(d).resolve()) for d in package_dirs))
+    found = _LINK_GEOMETRY.get(key)
+    if found is not None and all(_stamp(file) == stamp for file, stamp in found[1].items()):
+        return found[0]
+    out: Dict[str, Geometry] = {}
+    files: Dict[Path, Tuple[int, int]] = {}
+    for link in model.robot.links:
+        visual = tuple(_shape(e.geometry, e.origin, path.parent, package_dirs, files) for e in link.visuals
+                       if e.geometry)
+        collision = tuple(_shape(e.geometry, e.origin, path.parent, package_dirs, files) for e in link.collisions
+                          if e.geometry)
+        if visual or collision:
+            out[link.name] = Geometry(visual, collision)
+    _LINK_GEOMETRY[key] = (out, files)
+    return out
+
+
+def _stamp(file: Path) -> Optional[Tuple[int, int]]:
+    """A file's (mtime_ns, size), or None if it is gone."""
+    try:
+        status = os.stat(file)
+    except OSError:
+        return None
+    return status.st_mtime_ns, status.st_size
+
+
+def _shape(geometry, origin: Optional[np.ndarray], urdf_folder: Path, package_dirs: Sequence[Path],
+           files: Dict[Path, Tuple[int, int]]) -> Shape:
+    """One URDF `<geometry>` (yourdfpy's) as a core shape, its `<origin>` (4x4 or None) applied; mesh files read
+    are noted in `files` with their stamps."""
+    pose = Pose() if origin is None else Pose.from_matrix(origin)
+    if geometry.box is not None:
+        return BoxShape(tuple(float(v) for v in geometry.box.size), pose)
+    if geometry.cylinder is not None:
+        return CylinderShape(float(geometry.cylinder.radius), float(geometry.cylinder.length), pose)
+    if geometry.sphere is not None:
+        sphere = icosphere(subdivisions=SPHERE_SUBDIVISIONS, radius=float(geometry.sphere.radius))
+        sphere.apply_transform(pose.matrix())
+        return TriMesh.from_arrays(sphere.vertices, sphere.faces)
+    if geometry.mesh is None:
+        raise URDFReadError("a <geometry> without box, cylinder, sphere or mesh")
+    source = resolve_mesh(geometry.mesh.filename, urdf_folder, package_dirs)
+    stamp = files[source] = _stamp(source)
+    scale = geometry.mesh.scale
+    scale = (1.0, 1.0, 1.0) if scale is None else tuple(float(v) for v in np.broadcast_to(scale, 3))
+    matrix = None if origin is None else np.asarray(origin, dtype=float)
+    key = (source, stamp, scale, None if matrix is None else matrix.tobytes())
+    mesh = _MESHES.get(key)
+    if mesh is None:
+        plain = read_mesh(source)
+        vertices = plain.vertices * np.asarray(scale)
+        if matrix is not None:
+            vertices = vertices @ matrix[:3, :3].T + matrix[:3, 3]
+        mesh = _MESHES[key] = TriMesh.from_arrays(vertices, plain.faces)
+    return mesh
+
+
 # --- --- --- --- --- UR ARMS --- --- --- --- ---
 
 #: Joint names in the UR driver's order. The URDF has the same names with the arm's prefix ("left_ur_arm_").
@@ -233,14 +380,6 @@ TOOL_TOUCHES_ARM_LINKS = ("wrist_2_link", "wrist_3_link", "flange", "tool0")
 STOCK_YAW = np.pi
 
 
-def joint_origin(joint: Element) -> Tuple[List[float], Rotation]:
-    """Return a URDF joint's `<origin>` as (xyz, rotation); a missing origin or attribute is zero."""
-    origin = joint.find("origin")
-    xyz = origin.get("xyz", "0 0 0") if origin is not None else "0 0 0"
-    rpy = origin.get("rpy", "0 0 0") if origin is not None else "0 0 0"
-    return [float(v) for v in xyz.split()], Rotation.from_euler("xyz", [float(v) for v in rpy.split()])
-
-
 def stock_frame_problem(urdf_file: Path, arm_name: str) -> Optional[str]:
     """Check the two joints below an arm's base_link are the stock ones.
 
@@ -252,15 +391,17 @@ def stock_frame_problem(urdf_file: Path, arm_name: str) -> Optional[str]:
         str | None: None if stock, otherwise what is wrong and how to fix it.
     """
     wrong = []
-    for joint in parse(urdf_file).getroot().findall("joint"):
-        if joint.find("parent").get("link") != f"{arm_name}_base_link":
+    for joint in load_urdf(urdf_file).robot.joints:
+        if joint.parent != f"{arm_name}_base_link":
             continue
-        if joint.find("child").get("link") not in (f"{arm_name}_base_link_inertia", f"{arm_name}_base"):
+        if joint.child not in (f"{arm_name}_base_link_inertia", f"{arm_name}_base"):
             continue
-        xyz, rotation = joint_origin(joint)
+        origin = np.eye(4) if joint.origin is None else np.asarray(joint.origin, dtype=float)
+        rotation = Rotation.from_matrix(origin[:3, :3])
         turn = (Rotation.from_euler("z", STOCK_YAW).inv() * rotation).magnitude()
-        if np.linalg.norm(xyz) > 1e-6 or turn > 1e-6:
-            wrong.append(f"{joint.get('name')} (rpy {joint.find('origin').get('rpy')})")
+        if np.linalg.norm(origin[:3, 3]) > 1e-6 or turn > 1e-6:
+            rpy = " ".join(f"{v:.6g}" for v in rotation.as_euler("xyz"))
+            wrong.append(f"{joint.name} (rpy {rpy})")
     if not wrong:
         return None
     return (f"URDF {Path(urdf_file).name}, arm {arm_name}: joints below {arm_name}_base_link are not the stock UR "

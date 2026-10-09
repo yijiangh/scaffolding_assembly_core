@@ -4,7 +4,7 @@ The design file format, schema 2 (doc/design_format.md): the `Design` in memory,
 Not imported here: `design.scenes` (scenes from a design, `Design.scene_at`), `design.plan_check` (the plan checks
 B1–B14) and `design.solutions` (planner results), so `import design` stays free of scenes and robots.
 
-! Runs on Python 3.9 (Rhino 8) with numpy, scipy and trimesh only.
+! Runs on Python 3.9 (Rhino 8) with numpy, scipy, trimesh and yourdfpy only.
 """
 
 from __future__ import annotations

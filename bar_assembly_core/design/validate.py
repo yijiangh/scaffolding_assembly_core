@@ -16,7 +16,7 @@ import numpy as np
 
 from ..geometry import BoxShape, CylinderShape, Geometry, Pose
 from ..ids import ID_PATTERN
-from ..urdf import is_relative_reference, mesh_references, movable_joints, urdf_joints, urdf_links
+from ..urdf import URDFReadError, is_relative_reference, mesh_references, movable_joints, urdf_joints, urdf_links
 from .types import (ACTION_TYPES, BAR_PREFIX, BODY_PREFIXES, CONTROLLERS, ENDS_ON, GROUND_PREFIX, HALF_PREFIX, PATHS,
                     ROBOT_PREFIX, TOOL_PREFIX, Action, Design, DesignError, Holder, Movement, State)
 from .vocabulary import GRIP, TOOL_KINDS
@@ -60,6 +60,8 @@ class _RobotFiles:
                 self.meshes = mesh_references(urdf)
             except ParseError as error:
                 problems.append(f"A4: {robot}: URDF {str(urdf)!r} is not valid XML ({error})")
+            except URDFReadError as error:
+                problems.append(f"A4: {robot}: URDF {str(urdf)!r} is not a readable robot ({error})")
         if not Path(srdf).is_file():
             problems.append(f"A4: {robot}: SRDF {str(srdf)!r} does not exist")
         elif self.joints is not None:
