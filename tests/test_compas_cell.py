@@ -82,6 +82,19 @@ def test_drawing_state_parks_a_robot_without_base(design):
     assert list(cells.state(retreat, strict=False).robot_base_frame.point) == list(PARKED_POSITION)
 
 
+def test_unknown_other_robots_are_parked(design):
+    """Alice arrives with unknown joints: she is parked, not drawn at a guess, and `parked` names her."""
+    for visual in (False, True):
+        cells = CompasFabCell("robots/cindy", visual=visual)
+        approach = design.scene_at(_movement(design, "B1_H_M0_approach"))
+        cells.update(approach)
+        state = cells.state(approach, strict=not visual)
+        assert list(state.tool_states["robots/alice"].frame.point) == list(PARKED_POSITION)
+        assert cells.parked == ("robots/alice",)
+        cells.state(design.scene_at(_movement(design, "B1_H_M1_close")), strict=not visual)
+        assert cells.parked == ()
+
+
 def test_mirror_plans_on_the_cell(design):
     """The mirror syncs, keeps its cell across syncs, and names collision pairs by our ids."""
     from bar_assembly_core.mirrors.compas_fab import CompasFabMirror
@@ -92,7 +105,9 @@ def test_mirror_plans_on_the_cell(design):
         cell = mirror.cell
         assert mirror.client.robot_cell is cell
         mirror.sync(design.scene_at(_movement(design, "B1_R_M0_ungrasp")))
-        assert mirror.cell is cell
+        assert mirror.cell is cell and mirror.parked == ()
+        mirror.sync(design.scene_at(_movement(design, "B1_H_M0_approach")))
+        assert mirror.parked == ("robots/alice",)
         pairs = mirror.collisions(full_report=True)
         assert all(isinstance(a, str) and isinstance(b, str) for a, b in pairs)
         with mirror.lend() as planner:
