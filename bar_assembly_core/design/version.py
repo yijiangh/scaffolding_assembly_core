@@ -35,7 +35,10 @@ def writer_info() -> Writer:
 def _git(*args: str) -> Optional[str]:
     """Run git in this package's folder; None if git is missing or fails."""
     try:
-        result = subprocess.run(["git", *args], cwd=_PACKAGE_DIR, capture_output=True, text=True, timeout=5)
+        # ! No console window and no stdin: a process without a console (Rhino) gets one made by Windows for every
+        # ! git call otherwise (0.5 s each, about 5 s for the first; measured in Rhino 8).
+        result = subprocess.run(["git", *args], cwd=_PACKAGE_DIR, capture_output=True, text=True, timeout=5,
+                                stdin=subprocess.DEVNULL, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     except (OSError, subprocess.SubprocessError):
         return None
     return result.stdout.strip() if result.returncode == 0 else None
