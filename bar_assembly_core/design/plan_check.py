@@ -1,8 +1,11 @@
 """
-The plan checks B1–B14 of format §9: does the plan make sense? Run on demand: before export, planning or execution.
+The plan checks B1–B15 of format §9: does the plan make sense? Run on demand: before export, planning or execution.
 
 A file can pass the file checks (`validate`) and still fail here, e.g. a half-finished plan saved from Rhino. Errors
-block execution; warnings are reported. Only B13 (SRDF groups) and B14 (forward kinematics) read the robot files.
+block execution; warnings are reported. Only B13 (SRDF groups), B14 and B15 (forward kinematics) read the robot files.
+
+`unreached_targets` is B15 alone, as data: the targets whose joints no longer reach their link poses, e.g. a bar moved
+after its inverse kinematics was solved. A design source asks it which of its solutions are stale.
 """
 
 from __future__ import annotations
@@ -15,7 +18,7 @@ from scipy.spatial.transform import Rotation
 
 from ..geometry import Pose, compose, invert
 from ..ids import split_link_id
-from ..kinematics import link_pose
+from ..kinematics import chain_joints, link_pose, link_poses
 from ..urdf import srdf_group_tips
 from .relations import ENGAGED, bar_of, mate_status, mount_offset
 from .types import BAR_PREFIX, GROUND_PREFIX, HALF_PREFIX, Action, Design, Holder, Movement, RobotState, State
@@ -30,11 +33,35 @@ JOINT_TOLERANCE = 1e-6
 
 
 @dataclass(frozen=True)
+class UnreachedTarget:
+    """One link of a movement's target that the target's own joints do not bring there (B15).
+
+    Attributes:
+        action, movement: Their ids.
+        bar: The action's bar, e.g. "bars/B25".
+        link: The link id, e.g. "robots/cindy/left_ur_arm_tool0".
+        distance: From the target pose to where the joints put the link, metres.
+        angle: The same, radians.
+    """
+
+    action: str
+    movement: str
+    bar: str
+    link: str
+    distance: float
+    angle: float
+
+
+@dataclass(frozen=True)
 class PlanReport:
-    """The result of `check_plan`: one line per problem, each starting with its check, e.g. "B7: ..."."""
+    """The result of `check_plan`: one line per problem, each starting with its check, e.g. "B7: ...".
+
+    `unreached` holds B15's errors as data too, for callers that mark the bars instead of printing the lines.
+    """
 
     errors: Tuple[str, ...]
     warnings: Tuple[str, ...]
+    unreached: Tuple[UnreachedTarget, ...] = ()
 
     @property
     def ok(self) -> bool:
@@ -43,11 +70,11 @@ class PlanReport:
 
 
 def check_plan(design: Design, *, geometry: bool = True, seats: Optional[Mapping[str, Pose]] = None) -> PlanReport:
-    """Run the plan checks B1–B14 on a design that passed the file checks.
+    """Run the plan checks B1–B15 on a design that passed the file checks.
 
     Args:
         design: The design.
-        geometry: Also run B13 and B14, which read the robot files.
+        geometry: Also run B13, B14 and B15, which read the robot files.
         seats: Part -> the half's pose in its tool's TCP frame, for B14. None: the design's `parts`, then PART_SEATS.
 
     Returns:
@@ -57,7 +84,54 @@ def check_plan(design: Design, *, geometry: bool = True, seats: Optional[Mapping
         seats = {**PART_SEATS, **{name: part.seat for name, part in design.parts.items()}}
     checker = _PlanChecker(design, seats)
     checker.run(geometry)
-    return PlanReport(tuple(checker.errors), tuple(checker.warnings))
+    return PlanReport(tuple(checker.errors), tuple(checker.warnings), tuple(checker.unreached))
+
+
+def unreached_targets(design: Design, tolerance: Tuple[float, float] = GRASP_TOLERANCE) -> Tuple[UnreachedTarget, ...]:
+    """B15 alone: every target link that the target's own joints do not reach, in schedule order.
+
+    A target may give both the joints a movement ends at and the world poses its links end at (a solved keyframe:
+    the flange targets from the geometry, the joints from inverse kinematics). They agree when the solution is
+    valid. They stop agreeing when the geometry changes afterwards: the bar, a connector or a tool was moved, or
+    the bar was copied with its solution.
+
+    - A link is compared where the robot's base is known and the target or the start gives every joint between the
+      base and the link; other links cannot be judged and are left out.
+    - ! It says the solution misses its target, not that it collides: that needs the scene (`mirrors`).
+
+    Args:
+        design: The design; its robot files are read.
+        tolerance: Largest distance (metres) and angle (radians) that still count as reached.
+
+    Returns:
+        tuple[UnreachedTarget, ...]: Empty when every comparable target is reached.
+    """
+    found = []
+    for action, movement in design.movements():
+        target = movement.target
+        if target is None or not target.links or not target.joints:
+            continue
+        by_robot: Dict[str, List[str]] = {}
+        for link_id in target.links:
+            by_robot.setdefault(split_link_id(link_id)[0], []).append(link_id)
+        for robot, link_ids in by_robot.items():
+            given, state, spec = target.joints.get(robot), movement.start.robots.get(robot), design.robots.get(robot)
+            if not given or state is None or state.base is None or spec is None:
+                continue
+            joints = {**(state.joints or {}), **given}
+            try:
+                judged = [(link_id, name) for link_id, name in ((i, split_link_id(i)[1]) for i in link_ids)
+                          if all(joint in joints for joint in chain_joints(spec.urdf, name))]
+                poses = link_poses(spec.urdf, state.base, joints, [name for _, name in judged])
+            except KeyError:
+                continue  # ? a link the URDF lacks: the file checks' business (A), not this one's
+            for link_id, name in judged:
+                wanted = target.links[link_id]
+                distance = float(np.linalg.norm(np.subtract(wanted.position, poses[name].position)))
+                angle = _angle(wanted, poses[name])
+                if distance > tolerance[0] or angle > tolerance[1]:
+                    found.append(UnreachedTarget(action.id, movement.id, action.bar, link_id, distance, angle))
+    return tuple(found)
 
 
 def end_state(movement: Movement) -> State:
@@ -98,6 +172,7 @@ class _PlanChecker:
         self.design, self.seats = design, seats
         self.errors: List[str] = []
         self.warnings: List[str] = []
+        self.unreached: List[UnreachedTarget] = []
         # Robot id -> {flange link name: tool id}.
         self.tool_at = {robot_id: dict(robot.tools) for robot_id, robot in design.robots.items()}
         self.steps: List[Tuple[Action, Movement]] = list(design.movements())
@@ -139,6 +214,7 @@ class _PlanChecker:
         if geometry:
             self.check_arms()
             self.check_grasps()
+            self.check_targets()
 
     # --- --- --- --- --- STRUCTURE (B1–B5) --- --- --- --- ---
 
@@ -336,7 +412,7 @@ class _PlanChecker:
                     self.error(12, action.id, f"releases {action.bar} before {missing} are built "
                                               f"({hold.id} supports until them)")
 
-    # --- --- --- --- --- GEOMETRY (B13, B14) --- --- --- --- ---
+    # --- --- --- --- --- GEOMETRY (B13, B14, B15) --- --- --- --- ---
 
     def check_arms(self) -> None:
         """B13: `arms` name flange links that end an SRDF group of the acting robot."""
@@ -380,6 +456,14 @@ class _PlanChecker:
                         reference = world
                     else:
                         self._compare(reference, world, where, f"{bar} as held by {holder.to}")
+
+    def check_targets(self) -> None:
+        """B15: a target's joints bring its links to their target poses."""
+        self.unreached = list(unreached_targets(self.design))
+        for miss in self.unreached:
+            self.error(15, miss.movement, f"the target's joints leave {miss.link} {miss.distance * 1000:.3g} mm and "
+                       f"{np.degrees(miss.angle):.3g}\u00b0 from its target pose: the solution is stale (the geometry "
+                       "changed after it was solved)")
 
     def _compare(self, expected: Pose, found: Pose, where: str, what: str) -> None:
         """Note a B14 error if two poses differ by more than GRASP_TOLERANCE."""

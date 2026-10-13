@@ -4,7 +4,7 @@ The shared core of the bar assembly tools, used by the Rhino plugin (`bar_joint_
 (`husky_assembly_tamp`) and the monitor (`husky-assembly-teleop`). It holds:
 
 - `design/`: the design format, schema 2 (`doc/design_format.md`): `read`, `write`, `validate` (file checks A1–A14),
-  `plan_check.check_plan` (plan checks B1–B14), `relations`, `scenes` (`Design.scene_at`), `solutions`;
+  `plan_check.check_plan` (plan checks B1–B15), `relations`, `scenes` (`Design.scene_at`), `solutions`;
 - `geometry`, `ids`, `urdf` (URDFs read with yourdfpy: names, joints, each link's shapes), `kinematics`
   (`link_pose`, `link_poses`), `robot`, `scene` (`scene_parts`: what a viewer draws);
 - `mirrors/`: a scene in PyBullet or compas_fab, for planners, and its compas_fab cell without PyBullet, for viewers

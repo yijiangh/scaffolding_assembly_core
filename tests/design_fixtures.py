@@ -142,6 +142,8 @@ def build_design(folder: Path) -> Design:
     ground_seat = Pose(orientation=(0.0, 0.0, 1.0, 0.0))
     grasp_b1 = rounded(compose(compose(tcp, ground_seat), invert(on_g1)))
     grasp_b2 = rounded(compose(tcp, invert(on_j1)))
+    # * The insert's flange target is where its target joints put the flange (plan check B15).
+    flange_inserted = rounded(link_pose(urdf, base_c, inserted, "left_tool0"))
     b1 = rounded(compose(link_pose(urdf, base_c, inserted, "left_tool0"), grasp_b1))
     b2 = rounded(compose(link_pose(urdf, base_c, joints(0.35), "left_tool0"), grasp_b2))
     grasp_a = rounded(compose(invert(link_pose(urdf, base_a, joints(1.0), "left_tool0")), b1))
@@ -194,7 +196,7 @@ def build_design(folder: Path) -> Design:
                      line=linear_down, drives={"tools/AT3L": "tighten"},
                      start=state(cindy_at(joints(0.25)), None, on_g1_closed, grip_open, held_c),
                      target=Target(joints={"robots/cindy": {"left_joint1": 0.5}},
-                                   links={flange: Pose((0.3, 0.2, 0.6))}, built=frozenset({"bars/B1"})),
+                                   links={flange: flange_inserted}, built=frozenset({"bars/B1"})),
                      notes={"approach_axis": "walkable_ground_normal", "approach_offset_mm": 15.0}),
         ))
     b1_hold = Action(

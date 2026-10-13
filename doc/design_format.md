@@ -462,6 +462,7 @@ Two groups of checks, run at different times. Every message starts with its chec
 | | **Geometry, with robot models** | |
 | B13 | `arms` name flange links that end an SRDF group of the acting robot | error |
 | B14 | Grasps agree with the geometry. For a tool on a connector half, the grasp is TCP × part seat × mount offset; for several holders, forward kinematics agrees whenever joints are known | error |
+| B15 | A target's `joints` bring its `links` to their target poses, by forward kinematics, wherever the base and the joints up to the link are known. A miss is a stale solution: the geometry changed after the joints were solved | error |
 
 **Resolved** in the implementation:
 - B11 compares joints, grips, tool `on`, present bars, `attached` (holders and grasps) and `built`; bases only within one action,
@@ -471,6 +472,10 @@ Two groups of checks, run at different times. Every message starts with its chec
   (`T20/Male` at the TCP; `T20/Ground` turned 180° about the TCP's z axis). A tool on a half of a part with no seat is
   reported as a B14 warning.
   For a built bar, every holder's forward kinematics must give the design pose.
+- B15 compares within the same 0.1 mm and 1 mrad (inverse kinematics is solved to 0.01 mm). The base is the start
+  state's; joints the target leaves out are the start's. `plan_check.unreached_targets` returns the misses as data
+  (action, movement, bar, link, distance, angle), and `PlanReport.unreached` carries them, so a design source can
+  mark the bars whose solutions are stale. It does not say whether a reached target collides.
 - B9 checks that the arm's path is linear; that it moves away is not checked.
 - B10 checks within a movement; between movements B11 refuses any change.
 

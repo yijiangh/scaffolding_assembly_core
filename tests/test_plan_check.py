@@ -1,4 +1,4 @@
-"""Tests for the plan checks B1–B14 (design.plan_check): one broken plan per check, errors apart from warnings."""
+"""Tests for the plan checks B1–B15 (design.plan_check): one broken plan per check, errors apart from warnings."""
 
 from dataclasses import replace
 from pathlib import Path
@@ -7,7 +7,7 @@ import pytest
 from design_fixtures import build_design, joints, with_movement, with_start
 
 from bar_assembly_core.design import Design, Holder, PartSpec, RobotState, Target, ToolState
-from bar_assembly_core.design.plan_check import check_plan, end_state
+from bar_assembly_core.design.plan_check import check_plan, end_state, unreached_targets
 from bar_assembly_core.geometry import Pose
 
 CINDY, ALICE = "robots/cindy/left_tool0", "robots/alice/left_tool0"
@@ -162,8 +162,34 @@ def test_b14_grasps_agree_with_the_geometry(design):
     _warns(replace(design, bodies={**design.bodies, "joints/J1_male": unknown}), 14, "no seat known for part 'T99/Odd'")
 
 
+def test_b15_target_joints_reach_the_target_links(design):
+    """A solved insert whose flange target moved afterwards (the bar was moved or copied): the solution is stale."""
+    assert unreached_targets(design) == ()
+    insert = design.actions["B1_J_joint"].movements[2]
+    reached = insert.target.links[CINDY]
+    moved = Pose(tuple(p + d for p, d in zip(reached.position, (0.0, 0.002, 0.0))), reached.orientation)
+    stale = with_movement(design, "B1_J_joint", 2, target=replace(insert.target, links={CINDY: moved}))
+    _errors(stale, 15, "robots/cindy/left_tool0 2 mm and")
+    (miss,) = check_plan(stale).unreached
+    assert (miss.action, miss.movement, miss.bar, miss.link) == ("B1_J_joint", "B1_M2_insert", "bars/B1", CINDY)
+    assert miss.distance == pytest.approx(0.002) and miss.angle == pytest.approx(0.0, abs=1e-9)
+    assert unreached_targets(stale, tolerance=(0.01, 0.01)) == ()
+
+
+def test_b15_judges_only_what_is_known(design):
+    """No verdict without the base, or without every joint up to the link; none for a target without links."""
+    insert = design.actions["B1_J_joint"].movements[2]
+    off = replace(insert.target, links={CINDY: Pose((9.0, 9.0, 9.0))})
+    assert len(unreached_targets(with_movement(design, "B1_J_joint", 2, target=off))) == 1
+    cindy = insert.start.robots["robots/cindy"]
+    for state in (RobotState(None, cindy.joints), RobotState(cindy.base, None)):
+        unknown = replace(insert.start, robots={**insert.start.robots, "robots/cindy": state})
+        assert unreached_targets(with_movement(design, "B1_J_joint", 2, start=unknown, target=off)) == ()
+    assert unreached_targets(with_movement(design, "B1_J_joint", 2, target=replace(off, joints={}))) == ()
+
+
 def test_geometry_checks_can_be_left_out(design):
-    """Without robot files B13 and B14 do not run."""
+    """Without robot files B13, B14 and B15 do not run."""
     bad = with_movement(design, "B2_J_joint", 2, arms=("robots/cindy/left_link2",))
     assert not any(e.startswith("B13") for e in check_plan(bad, geometry=False).errors)
 

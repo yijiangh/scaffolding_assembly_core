@@ -113,6 +113,24 @@ def link_pose(urdf_file: Path, base: Pose, joints: Mapping[str, float], link: st
     return compose(base, Pose.from_matrix(matrix))
 
 
+def chain_joints(urdf_file: Path, link: str) -> Tuple[str, ...]:
+    """The joints whose values place a link: the moving joints between the root and it (a mimic joint's source).
+
+    Raises:
+        KeyError: If the URDF has no such link.
+    """
+    tree = _tree(urdf_file)
+    if link not in tree.links:
+        raise KeyError(f"{Path(urdf_file).name} has no link {link!r}")
+    names = []
+    while link in tree.joints:
+        joint = tree.joints[link]
+        if joint.kind in _ROTATING + _SLIDING:
+            names.append(joint.mimic[0] if joint.mimic is not None else joint.name)
+        link = joint.parent
+    return tuple(reversed(names))
+
+
 def link_poses(urdf_file: Path, base: Pose, joints: Mapping[str, float],
                links: Optional[Iterable[str]] = None) -> Dict[str, Pose]:
     """World poses of many link frames at once, each joint's transform computed once.
