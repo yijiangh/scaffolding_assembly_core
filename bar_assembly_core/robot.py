@@ -26,17 +26,18 @@ class Tool:
     """A tool mounted on a flange (format §4.2). Geometry and `tcp` are in the flange link frame.
 
     Attributes:
-        id: E.g. "tools/AT3L" (a design's) or "tools/a200-0806/left_ur_arm" (a live robot's).
+        id: "tools/<robot>/<tool>", e.g. "tools/cindy/AT3L" (a design's) or "tools/a200-0806/left_ur_arm" (a live
+            robot's).
         kind: The end effector kind, e.g. "scaffolding_v3".
-        mount_contacts: Robot links the tool may always touch, as link ids (e.g.
-            "robots/cindy/left_ur_arm_wrist_2_link"): how it is mounted, like the SRDF's disabled collisions.
+
+    ? The arm links a mounted tool may touch are not a tool's data: they follow from its flange
+      (`urdf.TOOL_TOUCHES_ARM_LINKS`), and `robot_model(touches=...)` takes more for an unusual tool.
     """
 
     id: str
     geometry: Geometry
     tcp: Pose
     kind: str
-    mount_contacts: Tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, eq=False)

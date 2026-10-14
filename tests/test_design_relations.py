@@ -68,8 +68,8 @@ def test_allowed_contacts_are_derived(design):
     """
     contacts = allowed_contacts(design, _start(design, "B2_M3_insert"))
     assert contacts == {
-        ("joints/J1_male", "tools/AT3L"), ("bars/B2", "tools/AT3L"),
-        ("bars/B1", "tools/Grip"), ("joints/G1_ground", "tools/Grip"), ("joints/J1_female", "tools/Grip"),
+        ("joints/J1_male", "tools/cindy/AT3L"), ("bars/B2", "tools/cindy/AT3L"),
+        ("bars/B1", "tools/alice/Grip"), ("joints/G1_ground", "tools/alice/Grip"), ("joints/J1_female", "tools/alice/Grip"),
         ("bars/B1", "joints/G1_ground"), ("bars/B1", "joints/J1_female"), ("bars/B2", "joints/J1_male"),
         G1_MATE, J1_MATE, ("bars/B1", "joints/J1_male"), ("bars/B2", "joints/J1_female"),
         ("ground/WG0", "robots/alice/wheel_link"), ("ground/WG0", "robots/cindy/wheel_link"),

@@ -1,5 +1,5 @@
 """
-The tool vocabulary (format §5.4): every kind has one lasting state, its grip; some kinds also have drives.
+The tool vocabulary (format §7): every kind has one lasting state, its grip; some kinds also have drives.
 
 A grip value says what the tool does to the body it is on once a movement is done. A drive runs during a movement and
 leaves no state. How a change or a drive ends (stall, timeout) is fixed per kind and belongs to the controller.

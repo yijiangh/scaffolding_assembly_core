@@ -30,8 +30,8 @@ def _comparable(design: Design) -> dict:
     """Everything of a design except its folder, file paths, writer and mesh object identity."""
     return {
         "robots": {k: (r.id, r.serial, r.tools, r.ground_links) for k, r in design.robots.items()},
-        "tools": {k: (t.id, _geometry(t.geometry), t.tcp, t.kind, t.mount_contacts) for k, t in design.tools.items()},
-        "bodies": {k: (b.id, b.pose, _geometry(b.geometry), b.label, b.part, b.markers, b.mount)
+        "tools": {k: (t.id, _geometry(t.geometry), t.tcp, t.kind) for k, t in design.tools.items()},
+        "bodies": {k: (b.id, b.pose, _geometry(b.geometry), b.label, b.part, b.markers, b.mount, b.pose_in_tcp)
                    for k, b in design.bodies.items()},
         "mates": design.mates,
         "producer": design.producer,
@@ -63,7 +63,7 @@ def test_shared_mesh_written_once(tmp_path: Path):
     back = write(replace(design, bodies=bodies), tmp_path / "out")
     files = sorted(p.relative_to(tmp_path / "out" / "meshes").as_posix()
                    for p in (tmp_path / "out" / "meshes").rglob("*") if p.is_file())
-    assert len(files) == 2 and all(re.fullmatch(r"[0-9a-f]{16}\.obj", name) for name in files)
+    assert len(files) == 2 and all(re.fullmatch(r"[A-Za-z0-9_-]+\.[0-9a-f]{8}\.obj", name) for name in files)
     manifest = json.loads((tmp_path / "out" / "design.json").read_text())
     shared = ("joints/G1_ground", "joints/J1_female", "joints/J1_male", "obstacles/O1")
     name = manifest["bodies"]["joints/G1_ground"]["collision"][0]["mesh"]
@@ -80,7 +80,12 @@ def test_visual_left_out_when_equal(tmp_path: Path):
     manifest = json.loads((tmp_path / "out" / "design.json").read_text())
     assert "visual" not in manifest["bodies"]["bars/B2"]
     assert len(manifest["bodies"]["bars/B1"]["visual"]) == 2
-    assert "mount_contacts" not in manifest["tools"]["tools/Grip"] and "label" not in manifest["bodies"]["bars/B2"]
+    assert "label" not in manifest["bodies"]["bars/B2"] and "pose_in_tcp" not in manifest["bodies"]["bars/B2"]
+    assert manifest["bodies"]["joints/J1_male"]["pose_in_tcp"] == [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]
+    # * Mesh files say what they are of: a half's part, else the id's last segment, then the content hash.
+    names = {shape["mesh"].rsplit(".", 2)[0] for entry in [*manifest["bodies"].values(), *manifest["tools"].values()]
+             for shape in entry["collision"] if "mesh" in shape}
+    assert "meshes/AT3L" in names and all(name.startswith("meshes/") for name in names)
     assert "serial" not in manifest["robots"]["robots/alice"] and "part" not in manifest["bodies"]["bars/B2"]
     assert manifest["bodies"]["joints/J1_male"]["mount"] == "bars/B2" and "mount" not in manifest["bodies"]["bars/B2"]
     assert manifest["mates"] == [["ground/WG0", "joints/G1_ground"], ["joints/J1_female", "joints/J1_male"]]
@@ -89,13 +94,17 @@ def test_visual_left_out_when_equal(tmp_path: Path):
     assert "coupled" not in movement and "ends_on" not in movement and "notes" not in movement
     assert "line" not in movement and "drives" not in movement
     assert movement["start"]["built"] == ["bars/B1"] and list(movement["start"]["attached"]) == ["bars/B1"]
-    assert movement["start"]["tools"]["tools/Grip"] == {"grip": "open", "on": None}
-    assert movement["target"] == {"joints": {"robots/alice": {"left_joint1": 1.0, "left_joint2": 1.0,
-                                                              "right_joint1": 1.0, "right_joint2": 1.0}},
-                                  "tools": {"tools/Grip": {"on": "bars/B1"}}}, "the approach ends with the grip on B1"
+    assert movement["start"]["tools"]["tools/alice/Grip"] == {"grip": "open", "on": None}
+    # * A target reads like a start state: `robots` -> robot -> joints, `tools` -> tool -> what changes.
+    assert movement["target"] == {"robots": {"robots/alice": {"joints": {"left_joint1": 1.0, "left_joint2": 1.0,
+                                                                         "right_joint1": 1.0, "right_joint2": 1.0}}},
+                                  "tools": {"tools/alice/Grip": {"on": "bars/B1"}}}, "the approach ends with the grip on B1"
+    insert = json.loads((tmp_path / "out" / "actions" / "B1_J_joint.json").read_text())["movements"][2]["target"]
+    assert list(insert["robots"]["robots/cindy"]["link_poses"]) == ["robots/cindy/left_tool0"]
+    assert "base" not in insert["robots"]["robots/cindy"] and "base" not in movement
     close = action["movements"][1]
     assert "arms" not in close and "path" not in close and "controller" not in close and close["ends_on"] == "tools"
-    assert close["target"]["tools"] == {"tools/Grip": {"grip": "closed"}}
+    assert close["target"]["tools"] == {"tools/alice/Grip": {"grip": "closed"}}
     assert [holder["to"] for holder in close["target"]["attached"]["bars/B1"]] == [
         "robots/cindy/left_tool0", "robots/alice/left_tool0"], "holders keep their order: the first sets the pose"
     retreat = json.loads((tmp_path / "out" / "actions" / "B1_R_release.json").read_text())["movements"][1]
@@ -109,7 +118,7 @@ def test_writer_block_in_every_file(tmp_path: Path):
     assert len(files) == 6
     for path in files:
         writer = json.loads(path.read_text())["writer"]
-        assert writer["schema"] == 2 and writer["library"] == "bar_assembly_core"
+        assert writer["schema"] == 2.1 and writer["library"] == "bar_assembly_core"
         assert isinstance(writer["commit"], str) and isinstance(writer["dirty"], bool)
 
 
@@ -127,7 +136,7 @@ def test_content_hash_ignores_writer_and_formatting(tmp_path: Path):
     path = tmp_path / "out" / "actions" / "B1_J_joint.json"
     before = content_hash(path)
     data = json.loads(path.read_text())
-    data["writer"] = {"schema": 2, "library": "design_io", "commit": "elsewhere", "dirty": True}
+    data["writer"] = {"schema": 2.1, "library": "design_io", "commit": "elsewhere", "dirty": True}
     data["movements"][2]["line"]["robots/cindy/left_tool0"]["distance"] = 0.015 + 1e-15
     path.write_text(json.dumps(data))
     assert content_hash(path) == before
@@ -274,10 +283,10 @@ def test_hashes_in_memory_equal_the_written_files(tmp_path: Path):
     assert action_hashes == {a: content_hash(tmp_path / "out" / "actions" / f"{a}.json") for a in design.schedule}
     assert design_hashes(back) == (manifest_hash, action_hashes)
     # * A changed mesh changes the hash, although no id or pose changed.
-    tool = design.tools["tools/AT3L"]
+    tool = design.tools["tools/cindy/AT3L"]
     bigger = TriMesh.from_arrays(TETRA.vertices * 3.0, TETRA.faces)
     changed = replace(design, tools={**design.tools,
-                                     "tools/AT3L": replace(tool, geometry=Geometry((bigger,), (bigger,)))})
+                                     "tools/cindy/AT3L": replace(tool, geometry=Geometry((bigger,), (bigger,)))})
     assert design_hashes(changed)[0] != manifest_hash
 
 

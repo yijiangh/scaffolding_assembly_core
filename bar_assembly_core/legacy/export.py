@@ -23,8 +23,7 @@ from compas_robots import RobotModel
 # ! Registers the dtypes of the action and movement classes, so json_load can rebuild them.
 import rs_data_structure  # noqa: F401
 
-from ..design.plan_check import PART_SEATS
-from ..design.types import (Action, BodySpec, Design, Holder, LineSpec, Movement, PartSpec, Producer, RobotSpec,
+from ..design.types import (Action, BodySpec, Design, Holder, LineSpec, Movement, Producer, RobotSpec,
                             RobotState, State, Target, ToolState)
 from ..design.version import writer_info
 from ..geometry import Geometry, Pose, TriMesh, compose, invert
@@ -70,7 +69,7 @@ _GRIPS = {"grasp": "closed", "close": "closed", "ungrasp": "open", "open": "open
 
 #: The converter's name and version, written as the design's `producer.command`. ! Bump the number whenever the
 #: output changes: converted copies made by another version are converted again (`conversion.is_up_to_date`).
-CONVERTER = "legacy.export.from_export/2"
+CONVERTER = "legacy.export.from_export/6"
 
 #: Action type -> the code in its id, e.g. "B10_J" (format §3.1).
 ACTION_CODES = {"bar_jointing": "J", "bar_release": "R", "bar_holding": "H", "bar_holding_release": "HR"}
@@ -79,6 +78,10 @@ ACTION_CODES = {"bar_jointing": "J", "bar_release": "R", "bar_holding": "H", "ba
 _HALF_ID = re.compile(r"joints/(?P<pair>J\d+-\d+|G\d+-.*)_(?P<subtype>male|female|ground)")
 #: The catalogue type of every half in the exports (the ids name only the bar pair).
 _JOINT_TYPE = "T20"
+
+#: Part -> the half's pose in the frame of the tool centre point on it, for the halves the exports' tools act on:
+#: a ground half sits turned 180° about the TCP's z axis.
+POSE_IN_TCP: Dict[str, Pose] = {"T20/Male": Pose(), "T20/Ground": Pose(orientation=(0.0, 0.0, 1.0, 0.0))}
 
 #: Depth of the slab the walkable ground polygons are extruded into, downward, metres.
 GROUND_THICKNESS = 0.05
@@ -203,11 +206,9 @@ def from_export(export: Export, robot_files: Mapping[str, Tuple[Path, Path]],
            f"{len(mates)} mates, {len(design_actions)} actions, "
            f"{sum(len(a.movements) for a in design_actions.values())} movements")
     writer = writer_info()
-    parts = {body.part for body in converter.bodies.values()}
     return Design(folder=None, writer=writer, robots=converter.robots, tools=converter.tools,
                   bodies=converter.bodies, schedule=tuple(design_actions), actions=design_actions, mates=mates,
-                  producer=Producer("bar_assembly_core", writer.commit, writer.dirty, CONVERTER),
-                  parts={name: PartSpec(seat) for name, seat in PART_SEATS.items() if name in parts})
+                  producer=Producer("bar_assembly_core", writer.commit, writer.dirty, CONVERTER))
 
 
 # --- --- --- --- --- CONVERSION --- --- --- --- ---
@@ -295,9 +296,8 @@ class _Converter:
 
     def collect(self, actions) -> None:
         """Find robots, tools, bodies and each body's design pose, from (schedule entry, action) pairs."""
-        tool_names: Dict[str, set] = {}    # cell tool name -> robots that carry it
         mounts: Dict[str, Dict[str, str]] = {}
-        tool_touches: Dict[Tuple[str, str], set] = {}
+        carried: set = set()               # (robot, cell tool name)
         for entry, action in actions:
             robot = self.robot_ids[entry["robot"]]
             cell = self.cells[action.robot_id]
@@ -306,20 +306,18 @@ class _Converter:
                 for name, tool_state in movement.start_state.tool_states.items():
                     if name.startswith("ObstacleRobot") or not tool_state.attached_to_group:
                         continue
-                    tool_names.setdefault(name, set()).add(robot)
                     flange = cell.get_end_effector_link_name(tool_state.attached_to_group)
                     mounts.setdefault(robot, {})[flange] = name
-                    tool_touches.setdefault((robot, name), set()).update(
-                        link_id(robot, link) for link in tool_state.touch_links)
+                    carried.add((robot, name))
 
-        for (robot, name), touches in tool_touches.items():
-            # ? One Rhino tool name may be on several robots (SupportGripper): the robot goes in the id.
-            tool = f"tools/{name}" if len(tool_names[name]) == 1 else f"tools/{robot.split('/')[1]}/{name}"
+        for robot, name in sorted(carried):
+            # ? The export's touch links (the arm's last links) are not carried: the core derives them from the flange.
+            tool = f"tools/{robot.split('/')[1]}/{name}"
             self._tool_ids[(robot, name)] = tool
             cell = next(cell for cell_id, cell in self.cells.items() if self.robot_ids[self.names[cell_id]] == robot)
             model = cell.tool_models[name]
             self.tools[tool] = Tool(id=tool, geometry=_model_geometry(model), tcp=pose_from_frame(model.frame),
-                                    kind=self._tool_kind(name), mount_contacts=tuple(sorted(touches)))
+                                    kind=self._tool_kind(name))
 
         for robot, (urdf, srdf, _) in self._files.items():
             flanges = mounts.get(robot, {})
@@ -446,7 +444,7 @@ class _Converter:
                 raise ValueError(f"{key} is never carried with a bar in a jointing action: no mount")
             match = _HALF_ID.fullmatch(key)
             part = f"{_JOINT_TYPE}/{match['subtype'].capitalize()}" if match else ""
-            self.bodies[key] = replace(body, mount=mounts[key], part=part)
+            self.bodies[key] = replace(body, mount=mounts[key], part=part, pose_in_tcp=POSE_IN_TCP.get(part))
 
     def mates(self) -> frozenset:
         """The joints of the finished structure, from the half ids.
@@ -497,7 +495,8 @@ class _Converter:
         """
         flange_of = {tool: link_id(robot_id, flange) for robot_id, robot in self.robots.items()
                      for flange, tool in robot.tools.items()}
-        grounds = frozenset(key for key in self.bodies if key.startswith("ground/"))
+        # * Ground and obstacles are there throughout: the exports never add or remove one.
+        grounds = frozenset(key for key in self.bodies if key.startswith(("ground/", "obstacles/")))
         tools = {tool: ToolState() for tool in self.tools}
         attached: Dict[str, Tuple[Holder, ...]] = {}
         built: Set[str] = set()
@@ -567,7 +566,7 @@ class _Converter:
                 if grips and loosen:
                     drives.update(loosen)
                     loosen = {}
-                target = Target(joints=dict(arm_move.joints), links=dict(arm_move.links), tools=grips, on=on,
+                target = Target.of(joints=dict(arm_move.joints), link_poses=dict(arm_move.links), tools=grips, on=on,
                                 attached=after if after != attached else None,
                                 built=frozenset(built_after) if built_after != built else None)
                 role = _role(action.type, arm_move.kind if merged else move.kind, grips, merged, mounted)
@@ -719,7 +718,7 @@ def _role(action_type: str, kind: str, grips: Dict[str, str], merged: bool, moun
     if merged:
         return "insert"
     if kind == "manual":
-        return "mount"
+        return "place_bar"
     if kind == "tool":
         closing = "closed" in grips.values()
         if action_type in ("bar_jointing", "bar_release"):
@@ -812,7 +811,7 @@ def _refuse_unsupported(movement) -> None:
     """
     where = movement.movement_id
     if getattr(movement, "trajectory", None) is not None:
-        raise ValueError(f"{where}: has a trajectory; planned results are not part of a design (format §8)")
+        raise ValueError(f"{where}: has a trajectory; planned results are not part of a design (format §10)")
     for name, tool_state in movement.start_state.tool_states.items():
         if name.startswith("ObstacleRobot"):
             continue

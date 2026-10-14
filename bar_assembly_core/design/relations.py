@@ -1,5 +1,5 @@
 """
-What follows from a state and the design without being stored (format §5.5): where a body is, mate status, contacts.
+What follows from a state and the design without being stored (format §8): where a body is, mate status, contacts.
 
 - Where a bar is: built -> its design pose; attached and not built -> its first holder's link times the grasp;
   otherwise the pose in `State.poses`, else its design pose. A mounted half follows its bar.
@@ -15,7 +15,7 @@ from typing import Dict, Optional, Set, Tuple, Union
 from ..geometry import Pose, compose, invert
 from .types import BAR_PREFIX, GROUND_PREFIX, HALF_PREFIX, Design, Holder, State
 
-#: Mate status (format §5.5): which contacts a mate allows at one moment.
+#: Mate status (format §8.3): which contacts a mate allows at one moment.
 OPEN, PENDING, ENGAGED, NOT_RELEVANT = "open", "pending", "engaged", "not relevant"
 
 #: A mate: two body ids, sorted.
@@ -31,13 +31,12 @@ def bar_of(design: Design, body: str) -> Optional[str]:
 
 
 def is_present(design: Design, state: State, body: str) -> bool:
-    """Whether a body exists in a state: bars and ground when listed, halves with their bar, obstacles always."""
-    if body.startswith((BAR_PREFIX, GROUND_PREFIX)):
-        return body in state.present
-    if body.startswith(HALF_PREFIX):
-        bar = bar_of(design, body)
-        return bar is not None and bar in state.present
-    return True
+    """Whether a body exists in a state: when `present` lists it, or, for a mounted body (a half), when it lists the
+    bar it is mounted on. ? No override: a present bar has all its halves."""
+    spec = design.bodies.get(body)
+    if spec is not None and spec.mount is not None:
+        return spec.mount in state.present
+    return body in state.present
 
 
 def mount_offset(design: Design, half: str) -> Pose:

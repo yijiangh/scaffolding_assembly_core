@@ -1,7 +1,7 @@
 """
 Write a `Design` into a design folder (doc/design_format.md), then read it back; and the content hash of a file.
 
-The writer is deterministic: ids sorted, floats rounded to FLOAT_DIGITS, each mesh in `meshes/<content hash>.obj`, so
+The writer is deterministic: ids sorted, floats rounded to FLOAT_DIGITS, each mesh in `meshes/<owner>.<content hash>.obj`, so
 equal designs give equal files and `design_hashes` can tell the hashes without writing. Keys at their default, and
 `visual` equal to `collision`, are left out.
 """
@@ -73,17 +73,19 @@ def _manifest(design: Design, writer: Dict[str, Any], robots: Dict[str, Any], me
         "writer": writer,
         **({"producer": _producer(design.producer)} if design.producer is not None else {}),
         "robots": robots,
-        "tools": {tool_id: _drop_empty({**_geometry(tool.geometry, meshes), "tcp": _pose(tool.tcp),
-                                        "kind": tool.kind, "mount_contacts": list(tool.mount_contacts)})
+        "tools": {tool_id: _drop_empty({**_geometry(tool.geometry, meshes, tool_id.rsplit("/", 1)[1]),
+                                        "tcp": _pose(tool.tcp), "kind": tool.kind})
                   for tool_id, tool in sorted(design.tools.items())},
-        "bodies": {body_id: _drop_empty({"pose": _pose(body.pose), **_geometry(body.geometry, meshes),
+        "bodies": {body_id: _drop_empty({"pose": _pose(body.pose),
+                                         **_geometry(body.geometry, meshes, body.part or body_id.rsplit("/", 1)[1]),
                                          "label": body.label, "part": body.part,
                                          "markers": {name: [_float(v) for v in point]
                                                      for name, point in sorted(body.markers.items())},
-                                         "mount": body.mount})
+                                         "mount": body.mount,
+                                         "pose_in_tcp": None if body.pose_in_tcp is None
+                                         else _pose(body.pose_in_tcp)})
                    for body_id, body in sorted(design.bodies.items())},
-        **_drop_empty({"mates": [list(pair) for pair in sorted(design.mates)],
-                       "parts": {name: {"seat": _pose(part.seat)} for name, part in sorted(design.parts.items())}}),
+        **_drop_empty({"mates": [list(pair) for pair in sorted(design.mates)]}),
         "schedule": list(design.schedule),
     }
 
@@ -143,22 +145,27 @@ def _relative(path: Path, folder: Path) -> str:
 
 
 class _MeshFiles:
-    """The mesh files of one write, each named by its content: `meshes/<hash>.obj`, written on first use."""
+    """The mesh files of one write, written on first use: `meshes/<owner>.<hash>.obj`.
+
+    `<owner>` says what the mesh is of (a half's part, else the last segment of the first id using it, in sorted
+    order); `<hash>` is of the content, so `design.json` covers its meshes and equal meshes share one file.
+    """
 
     def __init__(self, folder: Optional[Path]):
         """Write into `folder`; None: only name the files (`design_hashes`)."""
         self.folder = folder
         self.by_object: Dict[int, str] = {}
+        self.by_content: Dict[str, str] = {}
         self.written: set = set()
         # ? Keep the meshes alive: `by_object` is keyed by object identity.
         self.kept: List[TriMesh] = []
 
-    def reference(self, mesh: TriMesh) -> str:
-        """The file of a mesh, relative to the design folder; written on first use."""
+    def reference(self, mesh: TriMesh, owner: str) -> str:
+        """The file of a mesh, relative to the design folder; written on first use, named after `owner` then."""
         if id(mesh) not in self.by_object:
             content = sha1(np.ascontiguousarray(mesh.vertices, dtype=np.float64).tobytes()
                            + b"|" + np.ascontiguousarray(mesh.faces, dtype=np.int64).tobytes()).hexdigest()
-            name = f"meshes/{content[:16]}.obj"
+            name = self.by_content.setdefault(content, f"meshes/{_file_name(owner)}.{content[:8]}.obj")
             if self.folder is not None and name not in self.written:
                 write_mesh(mesh, self.folder / name)
                 self.written.add(name)
@@ -195,10 +202,15 @@ def _pose(pose: Pose) -> List[float]:
     return [_float(v) for v in (*pose.position, *pose.orientation)]
 
 
-def _shape(shape: Shape, meshes: _MeshFiles) -> Dict[str, Any]:
+def _file_name(owner: str) -> str:
+    """An owner ("T20/Male", "AT3L") as a file name: other characters than letters, digits, `_` and `-` become `-`."""
+    return re.sub(r"[^A-Za-z0-9_-]+", "-", owner).strip("-") or "mesh"
+
+
+def _shape(shape: Shape, meshes: _MeshFiles, owner: str) -> Dict[str, Any]:
     """One shape (format §4.4); `origin` left out at identity."""
     if isinstance(shape, TriMesh):
-        return {"mesh": meshes.reference(shape)}
+        return {"mesh": meshes.reference(shape, owner)}
     if isinstance(shape, BoxShape):
         entry: Dict[str, Any] = {"box": [_float(v) for v in shape.size]}
     elif isinstance(shape, CylinderShape):
@@ -210,12 +222,12 @@ def _shape(shape: Shape, meshes: _MeshFiles) -> Dict[str, Any]:
     return entry
 
 
-def _geometry(geometry: Geometry, meshes: _MeshFiles) -> Dict[str, Any]:
+def _geometry(geometry: Geometry, meshes: _MeshFiles, owner: str) -> Dict[str, Any]:
     """`collision`, plus `visual` when it differs (same shapes in the same order counts as equal)."""
-    entry = {"collision": [_shape(shape, meshes) for shape in geometry.collision]}
+    entry = {"collision": [_shape(shape, meshes, owner) for shape in geometry.collision]}
     # ? TriMesh compares by object and primitives by value, so this is "same shapes, same order".
     if tuple(geometry.visual) != tuple(geometry.collision):
-        entry["visual"] = [_shape(shape, meshes) for shape in geometry.visual]
+        entry["visual"] = [_shape(shape, meshes, owner) for shape in geometry.visual]
     return entry
 
 
@@ -243,12 +255,15 @@ def _state(state: State) -> Dict[str, Any]:
 
 
 def _target(target: Target) -> Dict[str, Any]:
-    """A Target (format §5.3); `on`, `attached` and `built` only when the movement changes them."""
+    """A Target (format §5.3), shaped as a State; `on`, `attached` and `built` only when the movement changes them."""
     tools: Dict[str, Dict[str, Any]] = {tool: {"grip": grip} for tool, grip in target.tools.items()}
     for tool, body in target.on.items():
         tools.setdefault(tool, {})["on"] = body
-    entry = _drop_empty({"joints": {robot: _joints(joints) for robot, joints in target.joints.items()},
-                         "links": {link: _pose(pose) for link, pose in target.links.items()},
+    robots = {robot: _drop_empty({"base": None if part.base is None else _pose(part.base),
+                                  "joints": _joints(part.joints),
+                                  "link_poses": {link: _pose(pose) for link, pose in part.link_poses.items()}})
+              for robot, part in target.robots.items()}
+    entry = _drop_empty({"robots": {robot: part for robot, part in robots.items() if part},
                          "tools": dict(sorted(tools.items()))})
     if target.attached is not None:
         entry["attached"] = _holders(target.attached)
@@ -261,7 +276,7 @@ def _movement(movement: Movement) -> Dict[str, Any]:
     """A Movement (format §5.1): only the parts it has; `ends_on` left out at "target"."""
     entry: Dict[str, Any] = {"id": movement.id, **_drop_empty({"label": movement.label})}
     entry.update(_drop_empty({
-        "arms": list(movement.arms), "path": movement.path, "coupled": movement.coupled,
+        "arms": list(movement.arms), "base": list(movement.base), "path": movement.path, "coupled": movement.coupled,
         "controller": movement.controller,
         "line": {flange: {"direction": [_float(v) for v in line.direction], "distance": _float(line.distance)}
                  for flange, line in movement.line.items()},

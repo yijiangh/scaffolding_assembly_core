@@ -42,10 +42,7 @@ def design_model(design: Design, robot_id: str) -> RobotModel:
 @lru_cache(maxsize=64)
 def _model(robot_id: str, urdf, srdf, tools: Tuple[Tuple[str, Tool], ...]) -> RobotModel:
     """`design_model`, cached: a tool's `Geometry` hashes by identity, so a new design object is a new model."""
-    touches = {flange: tuple(split_link_id(entry)[1] for entry in tool.mount_contacts
-                             if entry.startswith(f"{robot_id}/"))
-               for flange, tool in tools}
-    return robot_model(robot_id.split("/", 1)[1], urdf, srdf, dict(tools), touches)
+    return robot_model(robot_id.split("/", 1)[1], urdf, srdf, dict(tools))
 
 
 def scene_at(design: Design, movement: Movement) -> Scene:

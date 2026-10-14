@@ -14,7 +14,7 @@ from ..geometry import BoxShape, CylinderShape, Geometry, Pose, Shape, TriMesh
 from ..robot import Tool
 from .meshes import MeshCache
 from ..urdf import robot_files_hash
-from .types import (Action, BodySpec, Design, DesignError, Holder, LineSpec, Movement, PartSpec, Producer, RobotSpec,
+from .types import (Action, BodySpec, Design, DesignError, Holder, LineSpec, Movement, Producer, RobotSpec, RobotTarget,
                     RobotState, SchemaMismatch, State, Target, ToolState, Writer)
 from .validate import validate
 from .version import SCHEMA
@@ -26,20 +26,19 @@ DESIGN_FORMAT, ACTION_FORMAT = "husky_design", "husky_design/action"
 #: "{t" is a map of t, "[t" a list of t, "null|t" also allows null.
 KEYS: Dict[str, Dict[str, str]] = {
     "design": {"format": "str", "writer": "writer", "?producer": "producer", "robots": "{robot", "tools": "{tool",
-               "bodies": "{body", "?mates": "[[str", "?parts": "{part", "schedule": "[str"},
+               "bodies": "{body", "?mates": "[[str", "schedule": "[str"},
     "writer": {"schema": "num", "library": "str", "commit": "str", "dirty": "bool"},
     "producer": {"repo": "str", "commit": "str", "dirty": "bool", "command": "str"},
     "robot": {"urdf": "str", "srdf": "str", "?files_hash": "str", "?serial": "null|str", "?tools": "{str",
               "?ground_links": "[str"},
-    "part": {"seat": "pose"},
-    "tool": {"collision": "[shape", "?visual": "[shape", "tcp": "pose", "kind": "str", "?mount_contacts": "[str"},
+    "tool": {"collision": "[shape", "?visual": "[shape", "tcp": "pose", "kind": "str"},
     "body": {"pose": "pose", "collision": "[shape", "?visual": "[shape", "?label": "str", "?part": "str",
-             "?markers": "{nums", "?mount": "str"},
+             "?markers": "{nums", "?mount": "str", "?pose_in_tcp": "pose"},
     "shape": {"?mesh": "str", "?box": "nums", "?cylinder": "nums", "?origin": "pose"},
     "action": {"format": "str", "writer": "writer", "id": "str", "type": "str", "robot": "str", "bar": "str",
                "?ground": "[str", "?supports_until": "[str", "?label": "str", "?notes": "notes",
                "movements": "[movement"},
-    "movement": {"id": "str", "?label": "str", "?arms": "[str", "?path": "str", "?coupled": "bool",
+    "movement": {"id": "str", "?label": "str", "?arms": "[str", "?base": "[str", "?path": "str", "?coupled": "bool",
                  "?controller": "str", "?line": "{line", "?drives": "{str", "?ends_on": "str", "start": "state",
                  "?target": "null|target", "?notes": "notes"},
     "line": {"direction": "nums", "distance": "num"},
@@ -48,8 +47,8 @@ KEYS: Dict[str, Dict[str, str]] = {
     "robot_state": {"base": "null|pose", "joints": "null|{num"},
     "holder": {"to": "str", "grasp": "pose"},
     "tool_state": {"grip": "null|str", "on": "null|str"},
-    "target": {"?joints": "{{num", "?links": "{pose", "?tools": "{tool_change", "?attached": "{[holder",
-               "?built": "[str"},
+    "target": {"?robots": "{robot_target", "?tools": "{tool_change", "?attached": "{[holder", "?built": "[str"},
+    "robot_target": {"?base": "pose", "?joints": "{num", "?link_poses": "{pose"},
     "tool_change": {"?grip": "str", "?on": "null|str"},
     # * solutions/<action id>.json
     "solution": {"format": "str", "writer": "writer", "planner": "planner", "action": "str",
@@ -105,8 +104,7 @@ def read(folder: Path) -> Design:
                     schedule=tuple(manifest["schedule"]),
                     actions={name: _action(raw) for name, raw in raw_actions.items()},
                     mates=frozenset(tuple(sorted(pair)) for pair in manifest.get("mates", ())),
-                    producer=_producer(manifest["producer"]) if "producer" in manifest else None,
-                    parts={name: PartSpec(_pose(raw["seat"])) for name, raw in manifest.get("parts", {}).items()})
+                    producer=_producer(manifest["producer"]) if "producer" in manifest else None)
     for name, action in design.actions.items():
         if action.id != name:
             problems.append(f"A5: actions/{name}.json has id {action.id!r}, not its file name")
@@ -280,7 +278,7 @@ def _pose(values) -> Pose:
 
 def _writer(raw: Dict[str, Any]) -> Writer:
     """The `writer` block."""
-    return Writer(int(raw["schema"]), str(raw["library"]), str(raw["commit"]), bool(raw["dirty"]))
+    return Writer(float(raw["schema"]), str(raw["library"]), str(raw["commit"]), bool(raw["dirty"]))
 
 
 def _producer(raw: Dict[str, Any]) -> Producer:
@@ -323,8 +321,7 @@ def _geometry(raw: Dict[str, Any], meshes: _Meshes, owner: str) -> Geometry:
 
 def _tool(key: str, raw: Dict[str, Any], meshes: _Meshes) -> Tool:
     """A tool entry."""
-    return Tool(id=key, geometry=_geometry(raw, meshes, key), tcp=_pose(raw["tcp"]), kind=str(raw["kind"]),
-                mount_contacts=tuple(raw.get("mount_contacts", ())))
+    return Tool(id=key, geometry=_geometry(raw, meshes, key), tcp=_pose(raw["tcp"]), kind=str(raw["kind"]))
 
 
 def _body(key: str, raw: Dict[str, Any], meshes: _Meshes) -> BodySpec:
@@ -332,7 +329,8 @@ def _body(key: str, raw: Dict[str, Any], meshes: _Meshes) -> BodySpec:
     return BodySpec(id=key, pose=_pose(raw["pose"]), geometry=_geometry(raw, meshes, key),
                     label=str(raw.get("label", "")), part=str(raw.get("part", "")),
                     markers={name: tuple(float(v) for v in point) for name, point in raw.get("markers", {}).items()},
-                    mount=raw.get("mount"))
+                    mount=raw.get("mount"),
+                    pose_in_tcp=_pose(raw["pose_in_tcp"]) if "pose_in_tcp" in raw else None)
 
 
 # --- --- --- --- --- ACTION FILES --- --- --- --- ---
@@ -367,8 +365,12 @@ def _target(raw: Optional[Dict[str, Any]]) -> Optional[Target]:
     """A Target (format §5.3), or None for `null` or absent."""
     if raw is None:
         return None
-    return Target(joints={robot: _joints(values) for robot, values in raw.get("joints", {}).items()},
-                  links={link: _pose(pose) for link, pose in raw.get("links", {}).items()},
+    robots = {robot: RobotTarget(base=_pose(value["base"]) if "base" in value else None,
+                                 joints=_joints(value.get("joints", {})),
+                                 link_poses={link: _pose(pose)
+                                             for link, pose in value.get("link_poses", {}).items()})
+              for robot, value in raw.get("robots", {}).items()}
+    return Target(robots=robots,
                   tools={tool: value["grip"] for tool, value in raw.get("tools", {}).items() if "grip" in value},
                   on={tool: value["on"] for tool, value in raw.get("tools", {}).items() if "on" in value},
                   attached=_holders(raw["attached"]) if "attached" in raw else None,
@@ -377,7 +379,8 @@ def _target(raw: Optional[Dict[str, Any]]) -> Optional[Target]:
 
 def _movement(raw: Dict[str, Any]) -> Movement:
     """A Movement (format §5.1)."""
-    return Movement(id=raw["id"], start=_state(raw["start"]), arms=tuple(raw.get("arms", ())), path=raw.get("path"),
+    return Movement(id=raw["id"], start=_state(raw["start"]), arms=tuple(raw.get("arms", ())),
+                    base=tuple(raw.get("base", ())), path=raw.get("path"),
                     coupled=bool(raw.get("coupled", False)), controller=raw.get("controller"),
                     line={flange: LineSpec(tuple(float(v) for v in value["direction"]), float(value["distance"]))
                           for flange, value in raw.get("line", {}).items()},

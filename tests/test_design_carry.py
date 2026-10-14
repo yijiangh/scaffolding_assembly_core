@@ -14,7 +14,7 @@ def _movement(movement_id: str, robot: str, start=None, target=None) -> Movement
     robots = {r: RobotState(Pose(), start if r == robot else None) for r in ROBOTS}
     return Movement(id=movement_id, arms=(f"{robot}/tool0",), path="free", controller="position",
                     start=State(robots=robots, present=frozenset(), poses={}),
-                    target=Target(joints={robot: target}) if target else None)
+                    target=Target.of(joints={robot: target}) if target else None)
 
 
 def _design(*actions) -> Design:

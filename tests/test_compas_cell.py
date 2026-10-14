@@ -30,7 +30,7 @@ def test_cell_is_kept_until_a_geometry_changes(design):
     assert cells.update(scene) == "first build"
     cell = cells.cell
     assert set(cell.rigid_body_models) == {body for body, b in scene.bodies.items() if b.geometry.collision}
-    assert set(cell.tool_models) == {"tools/AT3L", "robots/alice"}
+    assert set(cell.tool_models) == {"tools/cindy/AT3L", "robots/alice"}
     assert cells.update(design.scene_at(_movement(design, "B1_R_M0_ungrasp"))) is None
     assert cells.cell is cell
 
@@ -69,7 +69,7 @@ def test_strict_state_refuses_what_a_drawing_parks(design):
     insert = design.scene_at(_movement(design, "B1_M2_insert"))
     state = cells.state(insert)
     assert state.rigid_body_states["bars/B1"].attached_to_link == "left_tool0"
-    assert state.tool_states["tools/AT3L"].attached_to_group is not None
+    assert state.tool_states["tools/cindy/AT3L"].attached_to_group is not None
 
 
 def test_drawing_state_parks_a_robot_without_base(design):

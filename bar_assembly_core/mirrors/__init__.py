@@ -11,7 +11,8 @@ from __future__ import annotations
 import sys
 from os import environ
 
-#: Where mirrors put disabled bodies and absent robots: far from everything that moves, and from PARKED_POSITION.
+#: Where mirrors put disabled bodies (and PyBulletMirror absent robots): far from everything that moves, and from
+#: PARKED_POSITION, where the compas_fab cell parks absent robots.
 HIDDEN_POSITION = (-50.0, -50.0, -50.0)
 
 

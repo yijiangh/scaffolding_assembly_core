@@ -1,5 +1,5 @@
 """
-The design in memory, schema 2: one frozen dataclass per object of doc/design_format.md, fields named as the file keys.
+The design in memory, schema 2.1: one frozen dataclass per object of doc/design_format.md, fields named as the file keys.
 
 ! Never change the dicts inside after construction; build a new object with `dataclasses.replace`.
 """
@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict, FrozenSet, Literal, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Dict, FrozenSet, Literal, Mapping, Optional, Tuple, Union
 
 from ..geometry import Geometry, Pose
 from ..ids import ROBOTS, TOOLS
@@ -17,11 +17,13 @@ from ..robot import Tool
 if TYPE_CHECKING:
     from ..scene import Scene
 
-ActionType = Literal["bar_jointing", "bar_release", "bar_holding", "bar_holding_release"]
+ActionType = Literal["bar_jointing", "bar_release", "bar_holding", "bar_holding_release", "bar_placing"]
 Controller = Literal["position", "compliant"]
 EndsOn = Literal["target", "tools", "operator"]
 
-ACTION_TYPES: Tuple[str, ...] = ("bar_jointing", "bar_release", "bar_holding", "bar_holding_release")
+ACTION_TYPES: Tuple[str, ...] = ("bar_jointing", "bar_release", "bar_holding", "bar_holding_release", "bar_placing")
+#: The action type no robot acts in: the bar is put into the structure by hand, at its place in the schedule.
+BY_HAND: str = "bar_placing"
 PATHS: Tuple[str, ...] = ("free", "linear")
 CONTROLLERS: Tuple[str, ...] = ("position", "compliant")
 ENDS_ON: Tuple[str, ...] = ("target", "tools", "operator")
@@ -49,7 +51,7 @@ class DesignError(ValueError):
 class SchemaMismatch(DesignError):
     """A file was written with another schema. Read it with the library at `commit`."""
 
-    def __init__(self, path: str, schema: int, commit: str, expected: int):
+    def __init__(self, path: str, schema: float, commit: str, expected: float):
         """Name the file, its schema and the commit that wrote it."""
         self.schema, self.commit = schema, commit
         super().__init__([f"{path} has schema {schema}, this library reads schema {expected}; "
@@ -60,9 +62,9 @@ class SchemaMismatch(DesignError):
 
 @dataclass(frozen=True)
 class Writer:
-    """Which library wrote a file (format §7)."""
+    """Which library wrote a file (format §9)."""
 
-    schema: int
+    schema: float
     library: str
     commit: str
     dirty: bool
@@ -70,7 +72,7 @@ class Writer:
 
 @dataclass(frozen=True)
 class Producer:
-    """Which code made the design (format §7), e.g. Rhino's `RSExportAllBarActions`."""
+    """Which code made the design (format §9), e.g. Rhino's `RSExportDesign`."""
 
     repo: str
     commit: str
@@ -105,9 +107,11 @@ class BodySpec:
     """A body (format §4.3). `pose` is its design pose in world; geometry and markers are in the body frame.
 
     Attributes:
-        part: Catalogue reference, e.g. "T20/Female"; empty if none.
+        part: What kind of half it is, e.g. "T20/Female": a label, for people and mocap; empty if none.
         markers: Marker label -> (x, y, z), metres, for placement checks and mocap registration.
         mount: A connector half's bar: the half is fixed to it for the whole design and follows it. None otherwise.
+        pose_in_tcp: A connector half a tool acts on: the half's pose in the frame of the tool centre point on it
+            (identity when the two frames coincide). None: no tool may be put on it. B14 checks grasps against it.
     """
 
     id: str
@@ -117,6 +121,7 @@ class BodySpec:
     part: str = ""
     markers: Dict[str, Tuple[float, float, float]] = field(default_factory=dict)
     mount: Optional[str] = None
+    pose_in_tcp: Optional[Pose] = None
 
 
 # --- --- --- --- --- STATES --- --- --- --- ---
@@ -175,24 +180,80 @@ class LineSpec:
 
 
 @dataclass(frozen=True)
-class Target:
-    """Where a movement should end (format §5.3); each part may be empty.
+class RobotTarget:
+    """What a target says of one robot (format §5.3): the keys of a `RobotState`, only those the movement sets.
 
     Attributes:
-        joints: Robot id -> joint -> value; a subset of joints is allowed.
-        links: Link id -> world pose.
+        base: Where the base ends; None: it does not move (only a movement listing the robot in `base` gives one).
+        joints: Joint -> value at the end; a subset of joints is allowed.
+        link_poses: Link id ("robots/cindy/left_ur_arm_tool0") -> world pose at the end, e.g. of a flange.
+    """
+
+    base: Optional[Pose] = None
+    joints: Dict[str, float] = field(default_factory=dict)
+    link_poses: Dict[str, Pose] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class Target:
+    """Where a movement should end (format §5.3): a partial `State`, holding only what the movement decides.
+
+    The state at a movement's end is its start with the target laid over it (`plan_check.end_state`).
+
+    Attributes:
+        robots: Robot id -> its base, joints and link poses at the end; only the robots the movement moves.
         tools: Tool id -> the grip it is commanded to, only for the tools the movement commands.
         on: Tool id -> the body it is on at the end (None: on nothing), only for the tools whose `on` changes.
         attached: The whole `attached` map at the end, if the movement changes it; None: unchanged.
         built: The whole `built` set at the end, if the movement changes it; None: unchanged.
     """
 
-    joints: Dict[str, Dict[str, float]] = field(default_factory=dict)
-    links: Dict[str, Pose] = field(default_factory=dict)
+    robots: Dict[str, RobotTarget] = field(default_factory=dict)
     tools: Dict[str, str] = field(default_factory=dict)
     on: Dict[str, Optional[str]] = field(default_factory=dict)
     attached: Optional[Dict[str, Tuple[Holder, ...]]] = None
     built: Optional[FrozenSet[str]] = None
+
+    @classmethod
+    def of(cls, joints: Optional[Mapping[str, Mapping[str, float]]] = None,
+           link_poses: Optional[Mapping[str, Pose]] = None, bases: Optional[Mapping[str, Pose]] = None, **rest) -> Target:
+        """A target from maps over all robots: robot id -> joints, link id -> pose, robot id -> base.
+
+        Args:
+            joints: Robot id -> joint -> value.
+            link_poses: Link id -> world pose; each goes to the robot its id names.
+            bases: Robot id -> base pose.
+            **rest: The other fields (`tools`, `on`, `attached`, `built`).
+        """
+        joints, link_poses, bases = dict(joints or {}), dict(link_poses or {}), dict(bases or {})
+        of_link = {link: "/".join(link.split("/")[:2]) for link in link_poses}
+        robots = {robot: RobotTarget(base=bases.get(robot), joints=dict(joints.get(robot, {})),
+                                     link_poses={link: pose for link, pose in link_poses.items()
+                                                 if of_link[link] == robot})
+                  for robot in dict.fromkeys([*joints, *of_link.values(), *bases])}
+        return cls(robots=robots, **rest)
+
+    def having(self, joints=None, link_poses=None, bases=None) -> Target:
+        """A copy with the given maps (as for `of`) in place of its own; None keeps what it has."""
+        return Target.of(self.joints if joints is None else joints,
+                         self.link_poses if link_poses is None else link_poses,
+                         self.bases if bases is None else bases, tools=self.tools, on=self.on,
+                         attached=self.attached, built=self.built)
+
+    @property
+    def joints(self) -> Dict[str, Dict[str, float]]:
+        """dict: Robot id -> joint -> value, for the robots whose joints the target gives."""
+        return {robot: dict(part.joints) for robot, part in self.robots.items() if part.joints}
+
+    @property
+    def link_poses(self) -> Dict[str, Pose]:
+        """dict: Link id -> world pose, over every robot."""
+        return {link: pose for part in self.robots.values() for link, pose in part.link_poses.items()}
+
+    @property
+    def bases(self) -> Dict[str, Pose]:
+        """dict: Robot id -> base pose, for the robots whose base the movement moves."""
+        return {robot: part.base for robot, part in self.robots.items() if part.base is not None}
 
 
 @dataclass(frozen=True)
@@ -201,6 +262,8 @@ class Movement:
 
     Attributes:
         arms: Flange link ids that move; empty: no arm moves.
+        base: Robot ids whose base drives during the movement; empty: none. ! No planner or path type handles a
+            moving base yet: the format allows it, planners report it as not supported.
         path: "free" or "linear", when arms move.
         coupled: The arms keep their relative pose (they hold one bar).
         controller: "position" or "compliant", when arms move.
@@ -214,6 +277,7 @@ class Movement:
     id: str
     start: State
     arms: Tuple[str, ...] = ()
+    base: Tuple[str, ...] = ()
     path: Optional[str] = None
     coupled: bool = False
     controller: Optional[str] = None
@@ -237,7 +301,10 @@ class Movement:
 
 @dataclass(frozen=True)
 class Action:
-    """One scheduled action (format §5): one robot's movements on one bar."""
+    """One scheduled action (format §5): one robot's movements on one bar.
+
+    A `bar_placing` action has no robot (`robot` is ""): one manual step that ends with the bar built.
+    """
 
     id: str
     type: ActionType
@@ -251,13 +318,6 @@ class Action:
 
 
 @dataclass(frozen=True)
-class PartSpec:
-    """A catalogue part (format §4.5), e.g. "T20/Male": `seat` is the half's pose in the frame of the TCP on it."""
-
-    seat: Pose
-
-
-@dataclass(frozen=True)
 class Design:
     """A whole design folder (format §2).
 
@@ -267,7 +327,6 @@ class Design:
         mates: Joints of the finished structure, each pair sorted: a male and a female half, or a ground half and a
             ground body. They never move anything; their status follows from the state (`relations.mate_status`).
         producer: The code that made the design, or None.
-        parts: Catalogue part name -> its seat, for the parts the producer knows; B14 checks grasps against them.
     """
 
     folder: Optional[Path]
@@ -279,7 +338,6 @@ class Design:
     actions: Dict[str, Action]
     mates: FrozenSet[Tuple[str, str]] = frozenset()
     producer: Optional[Producer] = None
-    parts: Dict[str, PartSpec] = field(default_factory=dict)
 
     def halves_of(self, bar: str) -> Tuple[str, ...]:
         """The connector halves mounted on a bar, sorted."""

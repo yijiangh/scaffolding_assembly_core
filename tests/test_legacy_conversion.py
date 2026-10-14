@@ -72,24 +72,24 @@ def test_jointing_and_release(converted):
     """
     _, design = converted
     assert [m.id for m in design.actions["B10_J"].movements] == [
-        "B10_J_load", "B10_J_mount", "B10_J_grasp", "B10_J_transfer", "B10_J_insert"]
+        "B10_J_load", "B10_J_place_bar", "B10_J_grasp", "B10_J_transfer", "B10_J_insert"]
     mount, grasp, transfer, insert = design.actions["B10_J"].movements[1:]
     assert mount.ends_on == "operator" and [h.to.split("/")[-1] for h in mount.target.attached["bars/B10"]] == [
         "left_ur_arm_tool0", "right_ur_arm_tool0"]
-    assert mount.target.on == {"tools/AT3L": "joints/J3-10_male", "tools/AT3R": "joints/J7-10_male"}
-    assert grasp.start.tools["tools/AT3L"].on == "joints/J3-10_male"
-    assert grasp.start.tools["tools/AT3R"].on == "joints/J7-10_male"
+    assert mount.target.on == {"tools/cindy/AT3L": "joints/J3-10_male", "tools/cindy/AT3R": "joints/J7-10_male"}
+    assert grasp.start.tools["tools/cindy/AT3L"].on == "joints/J3-10_male"
+    assert grasp.start.tools["tools/cindy/AT3R"].on == "joints/J7-10_male"
     assert transfer.coupled and transfer.controller == "position"
     assert (insert.path, insert.coupled, insert.controller, insert.ends_on) == ("linear", True, "compliant", "tools")
-    assert insert.drives == {"tools/AT3L": "tighten", "tools/AT3R": "tighten"} and "bars/B10" in insert.target.built
+    assert insert.drives == {"tools/cindy/AT3L": "tighten", "tools/cindy/AT3R": "tighten"} and "bars/B10" in insert.target.built
     assert all(abs(line.distance - 0.015) < 1e-6 for line in insert.line.values())
     ungrasp, retreat, home = design.actions["B10_R"].movements
     assert [m.id for m in (ungrasp, retreat, home)] == ["B10_R_ungrasp", "B10_R_retreat", "B10_R_home"]
     assert not ungrasp.arms and ungrasp.target.attached == {} and set(ungrasp.grip_change.values()) == {"open"}
-    assert ungrasp.drives == {"tools/AT3L": "loosen", "tools/AT3R": "loosen"} and ungrasp.target.built is None
-    assert retreat.path == "linear" and retreat.start.tools["tools/AT3L"].on == "joints/J3-10_male"
-    assert retreat.target.on == {"tools/AT3L": None, "tools/AT3R": None}
-    assert home.start.tools["tools/AT3L"].on is None
+    assert ungrasp.drives == {"tools/cindy/AT3L": "loosen", "tools/cindy/AT3R": "loosen"} and ungrasp.target.built is None
+    assert retreat.path == "linear" and retreat.start.tools["tools/cindy/AT3L"].on == "joints/J3-10_male"
+    assert retreat.target.on == {"tools/cindy/AT3L": None, "tools/cindy/AT3R": None}
+    assert home.start.tools["tools/cindy/AT3L"].on is None
     assert not {"lm_axis", "lm_distance_mm", "retreat_axes_world", "ends_on", "planner_fills"} & {
         key for action in design.actions.values() for movement in action.movements for key in movement.notes}
 

@@ -55,7 +55,7 @@ def test_a14_stale_after_the_action_changes(design, tmp_path):
     write_solution(design, _solution(design))
     rewritten = write(design, design.folder, overwrite=True)
     assert not is_stale(rewritten, read_solutions(rewritten)["B2_J_joint"]), "same content, same hash"
-    changed = with_movement(rewritten, "B2_J_joint", 2, target=Target(joints={"robots/cindy": joints(0.31)}))
+    changed = with_movement(rewritten, "B2_J_joint", 2, target=Target.of(joints={"robots/cindy": joints(0.31)}))
     changed = write(changed, design.folder, overwrite=True)
     solutions = read_solutions(changed)
     assert is_stale(changed, solutions["B2_J_joint"])

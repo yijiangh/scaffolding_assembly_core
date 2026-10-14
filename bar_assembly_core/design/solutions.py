@@ -1,5 +1,5 @@
 """
-Planner results, `solutions/<action id>.json` (format §8): read, write, staleness (A14) and the chaining rule.
+Planner results, `solutions/<action id>.json` (format §10.1): read, write, staleness (A14) and the chaining rule.
 
 A solution records the content hashes of `design.json` and of its action file as solved. When either file changed
 since, the solution is stale: shown, never executed.

@@ -1,5 +1,5 @@
 """
-The design file format, schema 2 (doc/design_format.md): the `Design` in memory, and reading, writing and validating.
+The design file format, schema 2.1 (doc/design_format.md): the `Design` in memory, and reading, writing and validating.
 
 Not imported here: `design.scenes` (scenes from a design, `Design.scene_at`), `design.plan_check` (the plan checks
 B1–B15) and `design.solutions` (planner results), so `import design` stays free of scenes and robots.
@@ -12,7 +12,7 @@ from __future__ import annotations
 from .carry import assumed_joints, assumed_start_all
 from .read import read
 from .types import (ACTION_TYPES, BODY_PREFIXES, CONTROLLERS, ENDS_ON, PATHS, Action, ActionType, BodySpec, Design,
-                    DesignError, Holder, LineSpec, Movement, PartSpec, Producer, RobotSpec, RobotState, SchemaMismatch,
+                    DesignError, Holder, LineSpec, Movement, Producer, RobotSpec, RobotState, RobotTarget, SchemaMismatch,
                     State, Target, ToolState, Writer)
 from .validate import validate
 from .version import LIBRARY, SCHEMA, writer_info
@@ -21,7 +21,7 @@ from .write import content_hash, design_hashes, write
 
 __all__ = [
     "ACTION_TYPES", "BODY_PREFIXES", "CONTROLLERS", "ENDS_ON", "GRIP", "LIBRARY", "PATHS", "SCHEMA", "TOOL_KINDS",
-    "Action", "ActionType", "BodySpec", "Design", "DesignError", "Holder", "LineSpec", "Movement", "PartSpec",
-    "Producer", "RobotSpec", "RobotState", "SchemaMismatch", "State", "Target", "ToolState", "Writer", "assumed_joints",
+    "Action", "ActionType", "BodySpec", "Design", "DesignError", "Holder", "LineSpec", "Movement",
+    "Producer", "RobotSpec", "RobotState", "RobotTarget", "SchemaMismatch", "State", "Target", "ToolState", "Writer", "assumed_joints",
     "assumed_start_all", "content_hash", "design_hashes", "read", "validate", "write", "writer_info",
 ]

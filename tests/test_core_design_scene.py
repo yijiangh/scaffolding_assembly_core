@@ -48,10 +48,10 @@ def test_scene_at_robots_and_held_body(design):
     tool0 = link_pose(cindy.model.urdf, cindy.base, cindy.joints, "left_tool0")
     np.testing.assert_allclose(scene.world_poses["bars/B1"].position, compose(tool0, grasp).position, atol=1e-9)
     # * Derived contacts: the tool with the half it is on, halves with their bar, the pending ground mate, wheels.
-    assert set(scene.bodies["joints/G1_ground"].touches) == {"tools/AT3L", "bars/B1", "ground/WG0"}
-    assert set(scene.bodies["bars/B1"].touches) == {"joints/G1_ground", "joints/J1_female", "tools/AT3L"}
+    assert set(scene.bodies["joints/G1_ground"].touches) == {"tools/cindy/AT3L", "bars/B1", "ground/WG0"}
+    assert set(scene.bodies["bars/B1"].touches) == {"joints/G1_ground", "joints/J1_female", "tools/cindy/AT3L"}
     assert set(scene.bodies["ground/WG0"].touches) == {"joints/G1_ground", "robots/cindy/wheel_link"}
-    assert "left_link2" in cindy.model.tool_touches["left_tool0"], "the tool's mount contacts are on the model"
+    assert cindy.model.tool_touches["left_tool0"] == ("left_tool0",), "a tool may touch the last links of its arm"
 
 
 def test_scene_at_built_and_staged_bars(design):
@@ -101,7 +101,7 @@ def test_hold_scenes(design):
     solve, release = hold_scenes(design, "B1_H_hold")
     assert solve.bodies["bars/B1"].enabled and solve.bodies["bars/B2"].placement == Pose((2.0, 0.0, 0.1))
     assert isinstance(solve.bodies["bars/B1"].placement, Pose)
-    assert "tools/Grip" in solve.bodies["joints/J1_female"].touches
+    assert "tools/alice/Grip" in solve.bodies["joints/J1_female"].touches
     assert isinstance(release.bodies["bars/B2"].placement, Pose) and release.bodies["bars/B2"].placement != Pose(
         (2.0, 0.0, 0.1))
     with pytest.raises(ValueError):

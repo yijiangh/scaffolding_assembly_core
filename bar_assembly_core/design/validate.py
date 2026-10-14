@@ -1,5 +1,5 @@
 """
-The file checks A3–A13 of format §9 on a `Design` in memory; A1 and A2 are the reader's, A14 the solutions'.
+The file checks A3–A13 of format §11 on a `Design` in memory; A1 and A2 are the reader's, A14 the solutions'.
 
 They know nothing about kinematics or the assembly procedure (that is `plan_check`), only URDF/SRDF names. Every
 problem is collected and raised in one `DesignError`, each line starting with "A<n>: <where>".
@@ -17,8 +17,8 @@ import numpy as np
 from ..geometry import BoxShape, CylinderShape, Geometry, Pose
 from ..ids import ID_PATTERN
 from ..urdf import URDFReadError, is_relative_reference, mesh_references, movable_joints, urdf_joints, urdf_links
-from .types import (ACTION_TYPES, BAR_PREFIX, BODY_PREFIXES, CONTROLLERS, ENDS_ON, GROUND_PREFIX, HALF_PREFIX, PATHS,
-                    ROBOT_PREFIX, TOOL_PREFIX, Action, Design, DesignError, Holder, Movement, State)
+from .types import (ACTION_TYPES, BAR_PREFIX, BODY_PREFIXES, CONTROLLERS, ENDS_ON, GROUND_PREFIX, HALF_PREFIX,
+                    OBSTACLE_PREFIX, PATHS, ROBOT_PREFIX, TOOL_PREFIX, Action, Design, DesignError, Holder, Movement, State)
 from .vocabulary import GRIP, TOOL_KINDS
 
 #: How far a quaternion's (or a line direction's) length may be from 1 (A7).
@@ -237,11 +237,16 @@ class _Checker:
                 self.add(10, tool_id, f"unknown tool kind {tool.kind!r}; known: {sorted(TOOL_KINDS)}")
             self.check_pose(tool.tcp, f"{tool_id} tcp")
             self.check_geometry(tool.geometry, tool_id)
-            for value in tool.mount_contacts:
-                self.link_known(value, f"{tool_id} mount_contacts")
+            # * A tool's id names its robot: "tools/<robot>/<tool>" on "robots/<robot>".
+            segments = tool_id.split("/")
+            carriers = {mount.split("/")[1] for mount in mounts[tool_id]}
+            if len(segments) != 3:
+                self.add(3, tool_id, "a tool id is tools/<robot>/<tool>")
+            elif carriers and carriers != {segments[1]}:
+                self.add(6, tool_id, f"named after robot {segments[1]!r} but mounted on {sorted(carriers)[0]!r}")
 
     def check_bodies(self) -> None:
-        """Body poses and markers, mounts and mates, part seats (A4, A7, A12)."""
+        """Body poses and markers, mounts, tool poses on halves and mates (A4, A7, A12)."""
         design = self.design
         for body_id, body in design.bodies.items():
             self.check_pose(body.pose, f"{body_id} pose")
@@ -256,6 +261,10 @@ class _Checker:
                     self.add(12, body_id, f"mount {body.mount!r} is not a bar of the design")
             elif body.mount is not None:
                 self.add(12, body_id, "only connector halves (joints/) have a mount")
+            if body.pose_in_tcp is not None:
+                self.check_pose(body.pose_in_tcp, f"{body_id} pose_in_tcp")
+                if not body_id.startswith(HALF_PREFIX):
+                    self.add(12, body_id, "only connector halves (joints/) have a pose_in_tcp")
         in_mates: Counter = Counter()
         for mate in sorted(design.mates):
             self.bodies_known(mate, "mates")
@@ -266,8 +275,6 @@ class _Checker:
         for half, count in in_mates.items():
             if count > 1:
                 self.add(12, "mates", f"{half} is in {count} mates, at most one allowed")
-        for name, part in design.parts.items():
-            self.check_pose(part.seat, f"parts {name} seat")
 
     def check_schedule(self) -> None:
         """`schedule` and the action files match one to one (A5)."""
@@ -289,7 +296,11 @@ class _Checker:
         where = f"action {action.id}"
         if action.type not in ACTION_TYPES:
             self.add(2, where, f"unknown action type {action.type!r}")
-        if action.robot not in design.robots:
+        if action.type == "bar_placing":
+            # * No robot acts: the bar is placed by hand.
+            if action.robot:
+                self.add(4, where, f"a bar_placing action has no robot, not {action.robot!r}")
+        elif action.robot not in design.robots:
             self.add(4, where, f"unknown robot {action.robot!r}")
         self.bodies_known((action.bar,), f"{where} bar", (BAR_PREFIX,))
         self.bodies_known(action.ground, f"{where} ground", (GROUND_PREFIX,))
@@ -309,6 +320,9 @@ class _Checker:
             found = self.link_known(arm, f"{at} arms")
             if found is not None and found[0] != action.robot:
                 self.add(4, f"{at} arms", f"{arm!r} is not a link of the acting robot {action.robot}")
+        for robot in movement.base:
+            if robot != action.robot:
+                self.add(4, f"{at} base", f"{robot!r} is not the acting robot {action.robot}")
         # * Path and controller exactly when arms move; a line on a linear path, one per moving arm.
         if movement.arms:
             if movement.path not in PATHS:
@@ -360,8 +374,9 @@ class _Checker:
                 missing = [name for name in movable if name not in robot_state.joints]
                 if missing:
                     self.add(8, f"{where} {robot} joints", f"missing joints {missing}")
-        # * A9: present lists bars and ground; attached, built and poses name present bars only.
-        self.bodies_known(state.present, f"{where} present", (BAR_PREFIX, GROUND_PREFIX), check=9)
+        # * A9: present lists the bodies that are not mounted (bars, ground, obstacles): a mounted half is present
+        #   with its bar. attached, built and poses name present bars only.
+        self.bodies_known(state.present, f"{where} present", (BAR_PREFIX, GROUND_PREFIX, OBSTACLE_PREFIX), check=9)
         self.check_bars(state.attached, state.present, f"{where} attached")
         self.check_bars(state.built, state.present, f"{where} built")
         self.check_bars(state.poses, state.present, f"{where} poses")
@@ -406,14 +421,20 @@ class _Checker:
     def check_target(self, movement: Movement, where: str) -> None:
         """A target names known robots, joints, links, tools, grips, bodies and bars (A4, A7–A10)."""
         design, target = self.design, movement.target
-        for robot, joints in target.joints.items():
+        for robot, part in target.robots.items():
             if robot not in design.robots:
                 self.add(4, where, f"unknown robot {robot!r}")
-            else:
-                self.check_joint_names(robot, joints, f"{where} joints")
-        for link, pose in target.links.items():
-            self.link_known(link, f"{where} links")
-            self.check_pose(pose, f"{where} link {link}")
+                continue
+            self.check_joint_names(robot, part.joints, f"{where} joints")
+            for link, pose in part.link_poses.items():
+                found = self.link_known(link, f"{where} link_poses")
+                if found is not None and found[0] != robot:
+                    self.add(4, f"{where} link_poses", f"{link!r} is listed under {robot}, not its own robot")
+                self.check_pose(pose, f"{where} link {link}")
+            if part.base is not None:
+                self.check_pose(part.base, f"{where} base of {robot}")
+                if robot not in movement.base:
+                    self.add(11, where, f"gives a base for {robot}, which the movement's `base` does not list")
         for tool, grip in target.tools.items():
             if self.tool_known(tool, f"{where} tools") and grip not in GRIP:
                 self.add(10, f"{where} {tool}", f"grip must be one of {GRIP}, not {grip!r}")
