@@ -613,7 +613,7 @@ class _Converter:
 
     def _mount(self, half: str) -> Pose:
         """A half's pose in its bar's frame, from the two assembly poses."""
-        return compose(invert(self.bodies[self.bodies[half].mount].pose), self.bodies[half].assembly_pose)
+        return compose(invert(self.bodies[self.bodies[half].mount].assembly_pose), self.bodies[half].assembly_pose)
 
     def _mounted_holders(self, action: "_RawAction", move: "_RawMovement") -> Tuple[Holder, ...]:
         """The holders of a bar the operator mounts, each with the bar's pose in its flange's frame.
