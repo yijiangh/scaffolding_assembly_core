@@ -8,10 +8,10 @@ from xml.etree.ElementTree import ParseError
 
 import numpy as np
 import pytest
-from design_fixtures import TETRA, build_design, joints, write_robot_files
+from process_fixtures import TETRA, build_process, joints, write_robot_files
 from scipy.spatial.transform import Rotation
 
-from bar_assembly_core.design.meshes import write_mesh
+from bar_assembly_core.process.meshes import write_mesh
 from bar_assembly_core.geometry import BoxShape, CylinderShape, Pose, TriMesh
 from bar_assembly_core.kinematics import link_pose, link_poses
 from bar_assembly_core.robot import robot_model
@@ -153,9 +153,9 @@ def test_stock_frames(tmp_path):
 
 def test_robot_parts_and_scene_parts(tmp_path):
     """A scene's parts: enabled bodies, then each enabled robot's links with shapes and its tools at their flanges."""
-    design = build_design(tmp_path)
-    movement = next(m for _, m in design.movements() if m.id == "B1_M1_grasp")
-    scene = design.scene_at(movement)
+    process = build_process(tmp_path)
+    movement = next(m for _, m in process.movements() if m.id == "B1_M1_grasp")
+    scene = process.scene_at(movement)
     parts = {part_id: (geometry, pose) for part_id, geometry, pose in scene_parts(scene)}
     cindy = scene.robots["robots/cindy"]
     assert not scene.robots["robots/alice"].enabled and not any(p.startswith("robots/alice/") for p in parts)

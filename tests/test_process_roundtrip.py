@@ -1,4 +1,4 @@
-"""Tests for design write and read (T3): a design written and read back is the same design."""
+"""Tests for process write and read (T3): a process written and read back is the same process."""
 
 import json
 import re
@@ -7,11 +7,11 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from design_fixtures import TETRA, build_design, write_robot_files
+from process_fixtures import TETRA, build_process, write_robot_files
 
-from bar_assembly_core.design import BodySpec, Design, DesignError, content_hash, design_hashes, read, write
+from bar_assembly_core.process import BodySpec, Process, ProcessError, content_hash, process_hashes, read, write
 from bar_assembly_core.geometry import Geometry, Pose, TriMesh
-from bar_assembly_core.design.meshes import read_mesh, write_mesh
+from bar_assembly_core.process.meshes import read_mesh, write_mesh
 from bar_assembly_core.urdf import (copy_robot, mesh_references, movable_joints, resolved_urdf_text, srdf_group_tips,
                                     urdf_joints, urdf_links)
 
@@ -26,28 +26,28 @@ def _geometry(geometry: Geometry) -> tuple:
     return _shapes(geometry.visual), _shapes(geometry.collision)
 
 
-def _comparable(design: Design) -> dict:
-    """Everything of a design except its folder, file paths, writer and mesh object identity."""
+def _comparable(process: Process) -> dict:
+    """Everything of a process except its folder, file paths, writer and mesh object identity."""
     return {
-        "robots": {k: (r.id, r.serial, r.tools, r.ground_links) for k, r in design.robots.items()},
-        "tools": {k: (t.id, _geometry(t.geometry), t.tcp, t.kind) for k, t in design.tools.items()},
-        "bodies": {k: (b.id, b.pose, _geometry(b.geometry), b.label, b.part, b.markers, b.mount, b.pose_in_tcp)
-                   for k, b in design.bodies.items()},
-        "mates": design.mates,
-        "producer": design.producer,
-        "schedule": design.schedule,
-        "actions": design.actions,
+        "robots": {k: (r.id, r.serial, r.tools, r.ground_links) for k, r in process.robots.items()},
+        "tools": {k: (t.id, _geometry(t.geometry), t.tcp, t.kind) for k, t in process.tools.items()},
+        "bodies": {k: (b.id, b.assembly_pose, _geometry(b.geometry), b.label, b.part, b.markers, b.mount, b.pose_in_tcp)
+                   for k, b in process.bodies.items()},
+        "mates": process.mates,
+        "producer": process.producer,
+        "schedule": process.schedule,
+        "actions": process.actions,
     }
 
 
 def test_write_then_read_is_equal(tmp_path: Path):
     """read(write(d)) equals d, down to every state, holder, tool state, target, line, drive and note."""
-    design = build_design(tmp_path)
-    back = write(design, tmp_path / "out")
+    process = build_process(tmp_path)
+    back = write(process, tmp_path / "out")
     assert back.folder == (tmp_path / "out").resolve()
-    assert _comparable(back) == _comparable(design)
-    assert _comparable(read(tmp_path / "out")) == _comparable(design)
-    # Robot files now live in the design, with absolute paths.
+    assert _comparable(back) == _comparable(process)
+    assert _comparable(read(tmp_path / "out")) == _comparable(process)
+    # Robot files now live in the process, with absolute paths.
     for robot in back.robots.values():
         assert robot.urdf == (tmp_path / "out" / "robots" / robot.name / "robot.urdf").resolve()
         assert robot.urdf.is_absolute() and robot.srdf.is_file()
@@ -55,16 +55,16 @@ def test_write_then_read_is_equal(tmp_path: Path):
 
 def test_shared_mesh_written_once(tmp_path: Path):
     """Bodies with one mesh share one file named by its content, and read back share one TriMesh object."""
-    design = build_design(tmp_path)
+    process = build_process(tmp_path)
     # * A copy with equal content is also written only once.
     copy = TriMesh.from_arrays(TETRA.vertices, TETRA.faces)
-    bodies = {**design.bodies, "obstacles/O1": BodySpec("obstacles/O1", design.bodies["bars/B2"].pose,
+    bodies = {**process.bodies, "obstacles/O1": BodySpec("obstacles/O1", process.bodies["bars/B2"].assembly_pose,
                                                         Geometry((copy,), (copy,)))}
-    back = write(replace(design, bodies=bodies), tmp_path / "out")
+    back = write(replace(process, bodies=bodies), tmp_path / "out")
     files = sorted(p.relative_to(tmp_path / "out" / "meshes").as_posix()
                    for p in (tmp_path / "out" / "meshes").rglob("*") if p.is_file())
     assert len(files) == 2 and all(re.fullmatch(r"[A-Za-z0-9_-]+\.[0-9a-f]{8}\.obj", name) for name in files)
-    manifest = json.loads((tmp_path / "out" / "design.json").read_text())
+    manifest = json.loads((tmp_path / "out" / "process.json").read_text())
     shared = ("joints/G1_ground", "joints/J1_female", "joints/J1_male", "obstacles/O1")
     name = manifest["bodies"]["joints/G1_ground"]["collision"][0]["mesh"]
     for body in shared:
@@ -76,8 +76,8 @@ def test_shared_mesh_written_once(tmp_path: Path):
 
 def test_visual_left_out_when_equal(tmp_path: Path):
     """`visual` is written only when it differs from `collision`; default keys are left out."""
-    write(build_design(tmp_path), tmp_path / "out")
-    manifest = json.loads((tmp_path / "out" / "design.json").read_text())
+    write(build_process(tmp_path), tmp_path / "out")
+    manifest = json.loads((tmp_path / "out" / "process.json").read_text())
     assert "visual" not in manifest["bodies"]["bars/B2"]
     assert len(manifest["bodies"]["bars/B1"]["visual"]) == 2
     assert "label" not in manifest["bodies"]["bars/B2"] and "pose_in_tcp" not in manifest["bodies"]["bars/B2"]
@@ -112,9 +112,9 @@ def test_visual_left_out_when_equal(tmp_path: Path):
 
 
 def test_writer_block_in_every_file(tmp_path: Path):
-    """design.json and each action file carry the writer block of this library."""
-    write(build_design(tmp_path), tmp_path / "out")
-    files = [tmp_path / "out" / "design.json", *sorted((tmp_path / "out" / "actions").glob("*.json"))]
+    """process.json and each action file carry the writer block of this library."""
+    write(build_process(tmp_path), tmp_path / "out")
+    files = [tmp_path / "out" / "process.json", *sorted((tmp_path / "out" / "actions").glob("*.json"))]
     assert len(files) == 6
     for path in files:
         writer = json.loads(path.read_text())["writer"]
@@ -124,7 +124,7 @@ def test_writer_block_in_every_file(tmp_path: Path):
 
 def test_poses_on_one_line(tmp_path: Path):
     """Poses and joint vectors stay on one line; no NaN."""
-    write(build_design(tmp_path), tmp_path / "out")
+    write(build_process(tmp_path), tmp_path / "out")
     text = (tmp_path / "out" / "actions" / "B1_J_joint.json").read_text()
     assert re.search(r'"grasp": \[[-0-9.e, ]+\]', text) and '"direction": [0.0, 0.0, -1.0]' in text
     assert "NaN" not in text
@@ -132,7 +132,7 @@ def test_poses_on_one_line(tmp_path: Path):
 
 def test_content_hash_ignores_writer_and_formatting(tmp_path: Path):
     """The hash covers content only: the same for another writer, indentation or float noise; not for a change."""
-    write(build_design(tmp_path), tmp_path / "out")
+    write(build_process(tmp_path), tmp_path / "out")
     path = tmp_path / "out" / "actions" / "B1_J_joint.json"
     before = content_hash(path)
     data = json.loads(path.read_text())
@@ -146,15 +146,15 @@ def test_content_hash_ignores_writer_and_formatting(tmp_path: Path):
 
 
 def test_content_hash_is_deterministic(tmp_path: Path):
-    """Writing the same design twice, from another commit, or rewriting what was read gives the same hashes."""
-    design = build_design(tmp_path)
-    write(design, tmp_path / "a")
-    back = write(replace(design, writer=replace(design.writer, commit="other")), tmp_path / "b")
+    """Writing the same process twice, from another commit, or rewriting what was read gives the same hashes."""
+    process = build_process(tmp_path)
+    write(process, tmp_path / "a")
+    back = write(replace(process, writer=replace(process.writer, commit="other")), tmp_path / "b")
     write(back, tmp_path / "c")
-    for name in ("design.json", *(f"actions/{action}.json" for action in design.schedule)):
+    for name in ("process.json", *(f"actions/{action}.json" for action in process.schedule)):
         hashes = {content_hash(tmp_path / folder / name) for folder in "abc"}
         assert len(hashes) == 1, name
-    assert (tmp_path / "a" / "design.json").read_text() == (tmp_path / "c" / "design.json").read_text()
+    assert (tmp_path / "a" / "process.json").read_text() == (tmp_path / "c" / "process.json").read_text()
 
 
 def test_non_empty_folder_refused(tmp_path: Path):
@@ -162,26 +162,26 @@ def test_non_empty_folder_refused(tmp_path: Path):
     (tmp_path / "out").mkdir()
     (tmp_path / "out" / "something.txt").write_text("x")
     with pytest.raises(FileExistsError):
-        write(build_design(tmp_path), tmp_path / "out")
+        write(build_process(tmp_path), tmp_path / "out")
 
 
 def test_overwrite_removes_stale_files(tmp_path: Path):
     """With overwrite, action files and meshes from an earlier write are gone."""
-    design = build_design(tmp_path)
-    write(design, tmp_path / "out")
+    process = build_process(tmp_path)
+    write(process, tmp_path / "out")
     (tmp_path / "out" / "actions" / "OLD.json").write_text("{}")
     (tmp_path / "out" / "meshes" / "old.obj").write_text("")
     (tmp_path / "out" / "solutions").mkdir()
-    back = write(design, tmp_path / "out", overwrite=True)
+    back = write(process, tmp_path / "out", overwrite=True)
     assert not (tmp_path / "out" / "actions" / "OLD.json").exists()
     assert not (tmp_path / "out" / "meshes" / "old.obj").exists()
     assert (tmp_path / "out" / "solutions").is_dir()
-    assert _comparable(back) == _comparable(design)
+    assert _comparable(back) == _comparable(process)
 
 
 def test_rewrite_into_own_folder(tmp_path: Path):
-    """A design read from a folder can be written back into it: its robot files are kept in place."""
-    back = write(build_design(tmp_path), tmp_path / "out")
+    """A process read from a folder can be written back into it: its robot files are kept in place."""
+    back = write(build_process(tmp_path), tmp_path / "out")
     again = write(back, tmp_path / "out", overwrite=True)
     assert again.robots["robots/cindy"].urdf == back.robots["robots/cindy"].urdf
     assert _comparable(again) == _comparable(back)
@@ -222,7 +222,7 @@ def test_copy_robot_resolves_packages(tmp_path: Path):
 
 
 def test_copy_robot_twice_keeps_mesh_paths(tmp_path: Path):
-    """Copying a design's own robot again keeps `meshes/<path>`; it does not nest a second `meshes/`."""
+    """Copying a process's own robot again keeps `meshes/<path>`; it does not nest a second `meshes/`."""
     package = tmp_path / "ws" / "husky_description"
     (package / "meshes").mkdir(parents=True)
     (package / "meshes" / "base_link.stl").write_bytes(b"solid x\nendsolid x\n")
@@ -257,45 +257,45 @@ def test_write_copies_package_meshes(tmp_path: Path):
     (package / "meshes" / "base_link.stl").write_bytes(b"solid x\nendsolid x\n")
     urdf, srdf = write_robot_files(tmp_path / "src", mesh="package://husky_description/meshes/base_link.stl",
                                    write_mesh_file=False)
-    design = build_design(tmp_path)
-    robots = {key: replace(robot, urdf=urdf, srdf=srdf) for key, robot in design.robots.items()}
-    back = write(replace(design, robots=robots), tmp_path / "out", package_dirs=[tmp_path / "ws"])
+    process = build_process(tmp_path)
+    robots = {key: replace(robot, urdf=urdf, srdf=srdf) for key, robot in process.robots.items()}
+    back = write(replace(process, robots=robots), tmp_path / "out", package_dirs=[tmp_path / "ws"])
     assert mesh_references(back.robots["robots/cindy"].urdf) == ["meshes/husky_description/meshes/base_link.stl"] * 2
 
 
 def test_floats_are_rounded(tmp_path: Path):
     """Written floats keep 12 decimals: numerical noise becomes 0.0, and -0.0 becomes 0.0."""
-    design = build_design(tmp_path)
+    process = build_process(tmp_path)
     noisy = Pose((0.5, -3.4e-20, -0.0), (0.0, 0.0, 0.0, 1.0))
-    bodies = {**design.bodies, "bars/B2": replace(design.bodies["bars/B2"], pose=noisy)}
-    back = write(replace(design, bodies=bodies), tmp_path / "out")
-    assert back.bodies["bars/B2"].pose.position == (0.5, 0.0, 0.0)
-    manifest = (tmp_path / "out" / "design.json").read_text()
+    bodies = {**process.bodies, "bars/B2": replace(process.bodies["bars/B2"], assembly_pose=noisy)}
+    back = write(replace(process, bodies=bodies), tmp_path / "out")
+    assert back.bodies["bars/B2"].assembly_pose.position == (0.5, 0.0, 0.0)
+    manifest = (tmp_path / "out" / "process.json").read_text()
     assert "e-20" not in manifest and not re.search(r"-0\.0[,\]]", manifest)
 
 
 def test_hashes_in_memory_equal_the_written_files(tmp_path: Path):
-    """`design_hashes` gives the hashes of the files `write` writes, before and after writing."""
-    design = build_design(tmp_path)
-    manifest_hash, action_hashes = design_hashes(design)
-    back = write(design, tmp_path / "out")
-    assert manifest_hash == content_hash(tmp_path / "out" / "design.json")
-    assert action_hashes == {a: content_hash(tmp_path / "out" / "actions" / f"{a}.json") for a in design.schedule}
-    assert design_hashes(back) == (manifest_hash, action_hashes)
+    """`process_hashes` gives the hashes of the files `write` writes, before and after writing."""
+    process = build_process(tmp_path)
+    manifest_hash, action_hashes = process_hashes(process)
+    back = write(process, tmp_path / "out")
+    assert manifest_hash == content_hash(tmp_path / "out" / "process.json")
+    assert action_hashes == {a: content_hash(tmp_path / "out" / "actions" / f"{a}.json") for a in process.schedule}
+    assert process_hashes(back) == (manifest_hash, action_hashes)
     # * A changed mesh changes the hash, although no id or pose changed.
-    tool = design.tools["tools/cindy/AT3L"]
+    tool = process.tools["tools/cindy/AT3L"]
     bigger = TriMesh.from_arrays(TETRA.vertices * 3.0, TETRA.faces)
-    changed = replace(design, tools={**design.tools,
+    changed = replace(process, tools={**process.tools,
                                      "tools/cindy/AT3L": replace(tool, geometry=Geometry((bigger,), (bigger,)))})
-    assert design_hashes(changed)[0] != manifest_hash
+    assert process_hashes(changed)[0] != manifest_hash
 
 
 def test_robot_files_are_hashed(tmp_path: Path):
-    """design.json records each robot's files hash; a robot file changed later is an A4 error on read."""
-    write(build_design(tmp_path), tmp_path / "out")
-    manifest = json.loads((tmp_path / "out" / "design.json").read_text())
+    """process.json records each robot's files hash; a robot file changed later is an A4 error on read."""
+    write(build_process(tmp_path), tmp_path / "out")
+    manifest = json.loads((tmp_path / "out" / "process.json").read_text())
     assert re.fullmatch(r"[0-9a-f]{64}", manifest["robots"]["robots/cindy"]["files_hash"])
     srdf = tmp_path / "out" / "robots" / "cindy" / "robot.srdf"
     srdf.write_text(srdf.read_text() + "\n<!-- edited -->\n")
-    with pytest.raises(DesignError, match="A4: robots/cindy: the robot files changed"):
+    with pytest.raises(ProcessError, match="A4: robots/cindy: the robot files changed"):
         read(tmp_path / "out")

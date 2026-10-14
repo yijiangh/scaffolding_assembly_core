@@ -209,7 +209,7 @@ def retarget(attachments: Mapping[str, Attachment], robot_map: IdMap,
     Attachments to a body, not a robot, are kept as they are.
 
     Args:
-        attachments: Body id -> attachment, e.g. the held bodies of a design scene.
+        attachments: Body id -> attachment, e.g. the held bodies of a process scene.
         robot_map: Robot id -> the robot to hold it instead, e.g. {"robots/cindy": "robots/a200-0806"}.
         models: The target robots' models, by their ids.
 

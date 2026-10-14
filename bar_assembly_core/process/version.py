@@ -12,7 +12,7 @@ from typing import Optional
 
 from .types import Writer
 
-#: Format version. Raise it on every incompatible change to doc/design_format.md (2.1: tool ids name their robot,
+#: Format version. Raise it on every incompatible change to doc/process_format.md (2.1: tool ids name their robot,
 #: `pose_in_tcp` on halves replaces `parts`, no `mount_contacts`, mesh files named `<owner>.<hash>.obj`, a target
 #: shaped as a state with `robots`, a movement's `base`).
 SCHEMA = 2.1

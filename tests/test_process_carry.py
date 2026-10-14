@@ -1,10 +1,10 @@
-"""Tests for design carry: joints assumed for movements without authored start joints."""
+"""Tests for process carry: joints assumed for movements without authored start joints."""
 
-from design_fixtures import WRITER
+from process_fixtures import WRITER
 
-from bar_assembly_core.design import Action, Design, Movement, RobotState, State, Target, assumed_joints
+from bar_assembly_core.process import Action, Process, Movement, RobotState, State, Target, assumed_joints
 from bar_assembly_core.geometry import Pose
-from bar_assembly_core.design.carry import assumed_start_all
+from bar_assembly_core.process.carry import assumed_start_all
 
 ROBOTS = ("robots/a", "robots/b")
 
@@ -17,9 +17,9 @@ def _movement(movement_id: str, robot: str, start=None, target=None) -> Movement
                     target=Target.of(joints={robot: target}) if target else None)
 
 
-def _design(*actions) -> Design:
-    """A design in memory with only a schedule of actions (carry needs nothing else)."""
-    return Design(folder=None, writer=WRITER, robots={}, tools={}, bodies={},
+def _process(*actions) -> Process:
+    """A process in memory with only a schedule of actions (carry needs nothing else)."""
+    return Process(folder=None, writer=WRITER, robots={}, tools={}, bodies={},
                   schedule=tuple(a.id for a in actions), actions={a.id: a for a in actions})
 
 
@@ -30,34 +30,34 @@ def _action(action_id: str, robot: str, *movements) -> Action:
 
 def test_authored_and_carried_from_previous_target():
     """An authored start is used as is; the next movement starts where it ended (start + target)."""
-    design = _design(_action("A1", "robots/a",
+    process = _process(_action("A1", "robots/a",
                              _movement("M0", "robots/a", start={"j1": 1.0, "j2": 2.0}, target={"j2": 5.0}),
                              _movement("M1", "robots/a")))
-    assert assumed_joints(design, "A1", "M0") == (None, "")
-    assert assumed_joints(design, "A1", "M1") == ({"j1": 1.0, "j2": 5.0}, "M0")
+    assert assumed_joints(process, "A1", "M0") == (None, "")
+    assert assumed_joints(process, "A1", "M1") == ({"j1": 1.0, "j2": 5.0}, "M0")
 
 
 def test_own_target_before_anything_known():
     """Before the robot's first known pose, a movement uses its own target."""
-    design = _design(_action("A1", "robots/a", _movement("M0", "robots/a", target={"j1": 3.0}),
+    process = _process(_action("A1", "robots/a", _movement("M0", "robots/a", target={"j1": 3.0}),
                              _movement("M1", "robots/a")))
-    assert assumed_joints(design, "A1", "M0") == ({"j1": 3.0}, "own target")
-    assert assumed_joints(design, "A1", "M1") == ({"j1": 3.0}, "M0")
+    assert assumed_joints(process, "A1", "M0") == ({"j1": 3.0}, "own target")
+    assert assumed_joints(process, "A1", "M1") == ({"j1": 3.0}, "M0")
 
 
 def test_look_ahead_and_robots_kept_apart():
     """With nothing before it, a movement takes the robot's next known start; other robots don't count."""
-    design = _design(_action("A1", "robots/a", _movement("M0", "robots/a")),
+    process = _process(_action("A1", "robots/a", _movement("M0", "robots/a")),
                      _action("A2", "robots/b", _movement("M1", "robots/b", start={"k": 9.0})),
                      _action("A3", "robots/a", _movement("M2", "robots/a", start={"j1": 7.0})))
-    everything = assumed_start_all(design)
+    everything = assumed_start_all(process)
     assert everything[("A1", "M0")] == ({"j1": 7.0}, "M2 (later)")
     assert everything[("A2", "M1")] == (None, "")
 
 
 def test_nothing_known():
     """A robot with no start or target anywhere has nothing to assume."""
-    design = _design(_action("A1", "robots/a", _movement("M0", "robots/a"), _movement("M1", "robots/a")),
+    process = _process(_action("A1", "robots/a", _movement("M0", "robots/a"), _movement("M1", "robots/a")),
                      _action("A2", "robots/b", _movement("M2", "robots/b", start={"k": 1.0})))
-    assert assumed_joints(design, "A1", "M0") == (None, "")
-    assert assumed_joints(design, "A1", "M1") == (None, "")
+    assert assumed_joints(process, "A1", "M0") == (None, "")
+    assert assumed_joints(process, "A1", "M1") == (None, "")

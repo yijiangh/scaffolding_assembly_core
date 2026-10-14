@@ -13,8 +13,8 @@ CORE = PACKAGE_ROOT / "bar_assembly_core"
 #: Pure-core modules: they must import with numpy, scipy, trimesh and yourdfpy alone.
 PURE = ("bar_assembly_core", "bar_assembly_core.geometry", "bar_assembly_core.ids", "bar_assembly_core.urdf",
         "bar_assembly_core.kinematics", "bar_assembly_core.robot", "bar_assembly_core.scene",
-        "bar_assembly_core.design", "bar_assembly_core.legacy", "bar_assembly_core.legacy.timing",
-        *(f"bar_assembly_core.design.{p.stem}" for p in sorted((CORE / "design").glob("*.py")) if p.stem != "__init__"))
+        "bar_assembly_core.process", "bar_assembly_core.legacy", "bar_assembly_core.legacy.timing",
+        *(f"bar_assembly_core.process.{p.stem}" for p in sorted((CORE / "process").glob("*.py")) if p.stem != "__init__"))
 #: Modules with extra dependencies (the extras in `pyproject.toml`). legacy.export and legacy.conversion also need
 #: rs_data_structure.
 EXTRAS = ("bar_assembly_core.mirrors",
@@ -62,16 +62,16 @@ def _run_39(packages: tuple, modules: tuple, extra_check: str = "") -> None:
 def test_core_imports_under_python_39():
     """The pure core imports and runs under Python 3.9 with only numpy, scipy, trimesh and yourdfpy, without compas.
 
-    It writes, reads and plan-checks the test design, and builds a scene of it.
+    It writes, reads and plan-checks the test process, and builds a scene of it.
     """
     run = (f"import tempfile, pathlib; sys.path.insert(0, {str(PACKAGE_ROOT / 'tests')!r})\n"
-           "from design_fixtures import build_design\n"
-           "from bar_assembly_core.design import write\n"
-           "from bar_assembly_core.design.plan_check import check_plan\n"
+           "from process_fixtures import build_process\n"
+           "from bar_assembly_core.process import write\n"
+           "from bar_assembly_core.process.plan_check import check_plan\n"
            "folder = pathlib.Path(tempfile.mkdtemp())\n"
-           "design = write(build_design(folder), folder / 'out')\n"
-           "assert check_plan(design).ok\n"
-           "scene = design.scene_at(next(movement for _, movement in design.movements()))\n"
+           "process = write(build_process(folder), folder / 'out')\n"
+           "assert check_plan(process).ok\n"
+           "scene = process.scene_at(next(movement for _, movement in process.movements()))\n"
            "assert 'bars/B2' in scene.world_poses and scene.robots['robots/cindy'].unmeasured\n"
            "from bar_assembly_core.scene import scene_parts\n"
            "assert 'robots/cindy/base_link' in {part_id for part_id, _, _ in scene_parts(scene)}\n"

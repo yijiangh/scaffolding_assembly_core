@@ -1,5 +1,5 @@
 """
-Read an old compas_fab export into a schema 2 `Design`.
+Read an old compas_fab export into a schema 2 `Process`.
 
 The export is RobotCell*.json, BarActions/, ActionSchedule.json and WalkableGround.json. Robots come from the given
 URDF and SRDF files, checked joint by joint against the models in the cells. The bars' `attached` and `built` flags
@@ -23,9 +23,9 @@ from compas_robots import RobotModel
 # ! Registers the dtypes of the action and movement classes, so json_load can rebuild them.
 import rs_data_structure  # noqa: F401
 
-from ..design.types import (Action, BodySpec, Design, Holder, LineSpec, Movement, Producer, RobotSpec,
+from ..process.types import (Action, BodySpec, Process, Holder, LineSpec, Movement, Producer, RobotSpec,
                             RobotState, State, Target, ToolState)
-from ..design.version import writer_info
+from ..process.version import writer_info
 from ..geometry import Geometry, Pose, TriMesh, compose, invert
 from ..ids import link_id, split_link_id
 from ..kinematics import link_pose
@@ -67,7 +67,7 @@ _CONTROLLERS = {"joint_tracking": "position", "cartesian_compliant": "compliant"
 #: Schema 1 tool action -> the grip it ends with; "tighten" becomes a drive, "untighten" a drive of the next ungrasp.
 _GRIPS = {"grasp": "closed", "close": "closed", "ungrasp": "open", "open": "open"}
 
-#: The converter's name and version, written as the design's `producer.command`. ! Bump the number whenever the
+#: The converter's name and version, written as the process's `producer.command`. ! Bump the number whenever the
 #: output changes: converted copies made by another version are converted again (`conversion.is_up_to_date`).
 CONVERTER = "legacy.export.from_export/6"
 
@@ -159,8 +159,8 @@ def load_export(folder, report: Callable[[str], None] = print, watch: Optional[S
 def read_legacy(folder, robot_files: Mapping[str, Tuple[Path, Path]],
                 serials: Optional[Mapping[str, str]] = None,
                 tool_kind: Callable[[str], str] = default_tool_kind,
-                report: Callable[[str], None] = print) -> Design:
-    """Read an export folder into an in-memory design (`folder` None): `load_export`, then `from_export`."""
+                report: Callable[[str], None] = print) -> Process:
+    """Read an export folder into an in-memory process (`folder` None): `load_export`, then `from_export`."""
     report(f"reading {folder}")
     return from_export(load_export(folder, report), robot_files, serials, tool_kind, report)
 
@@ -168,8 +168,8 @@ def read_legacy(folder, robot_files: Mapping[str, Tuple[Path, Path]],
 def from_export(export: Export, robot_files: Mapping[str, Tuple[Path, Path]],
                 serials: Optional[Mapping[str, str]] = None,
                 tool_kind: Callable[[str], str] = default_tool_kind,
-                report: Callable[[str], None] = print) -> Design:
-    """Convert a loaded export into an in-memory design (`folder` None); the export is not modified.
+                report: Callable[[str], None] = print) -> Process:
+    """Convert a loaded export into an in-memory process (`folder` None); the export is not modified.
 
     Args:
         export: From `load_export`.
@@ -180,7 +180,7 @@ def from_export(export: Export, robot_files: Mapping[str, Tuple[Path, Path]],
 
     Raises:
         ValueError: If a robot's URDF does not match the model in its cell (joint names or origins), or the
-            export holds data a design cannot carry (`_refuse_unsupported`, a tool with moving joints).
+            export holds data a process cannot carry (`_refuse_unsupported`, a tool with moving joints).
     """
     schedule, cells, actions = export.schedule, export.cells, export.actions
     names = {entry["robot_id"]: name for name, entry in schedule["robots"].items()}   # robot_id -> "Cindy"
@@ -199,15 +199,15 @@ def from_export(export: Export, robot_files: Mapping[str, Tuple[Path, Path]],
     raw = [converter.raw_action(entry, action) for entry, action in actions]
     converter.mount_halves(raw)
     mates = converter.mates()
-    design_actions = converter.actions(raw)
+    process_actions = converter.actions(raw)
     for line in converter.notes:
         report(line)
     report(f"{len(converter.robots)} robots, {len(converter.tools)} tools, {len(converter.bodies)} bodies, "
-           f"{len(mates)} mates, {len(design_actions)} actions, "
-           f"{sum(len(a.movements) for a in design_actions.values())} movements")
+           f"{len(mates)} mates, {len(process_actions)} actions, "
+           f"{sum(len(a.movements) for a in process_actions.values())} movements")
     writer = writer_info()
-    return Design(folder=None, writer=writer, robots=converter.robots, tools=converter.tools,
-                  bodies=converter.bodies, schedule=tuple(design_actions), actions=design_actions, mates=mates,
+    return Process(folder=None, writer=writer, robots=converter.robots, tools=converter.tools,
+                  bodies=converter.bodies, schedule=tuple(process_actions), actions=process_actions, mates=mates,
                   producer=Producer("bar_assembly_core", writer.commit, writer.dirty, CONVERTER))
 
 
@@ -295,7 +295,7 @@ class _Converter:
     # --- --- robots, tools and bodies, from every movement --- ---
 
     def collect(self, actions) -> None:
-        """Find robots, tools, bodies and each body's design pose, from (schedule entry, action) pairs."""
+        """Find robots, tools, bodies and each body's assembly pose, from (schedule entry, action) pairs."""
         mounts: Dict[str, Dict[str, str]] = {}
         carried: set = set()               # (robot, cell tool name)
         for entry, action in actions:
@@ -334,7 +334,7 @@ class _Converter:
             for name, rigid_body in cell.rigid_body_models.items():
                 key = body_id(name)
                 if key not in self.bodies:
-                    self.bodies[key] = BodySpec(id=key, pose=Pose(), geometry=_body_geometry(rigid_body))
+                    self.bodies[key] = BodySpec(id=key, assembly_pose=Pose(), geometry=_body_geometry(rigid_body))
         for _, action in actions:
             for movement in action.movements:
                 for name, body_state in movement.start_state.rigid_body_states.items():
@@ -342,9 +342,9 @@ class _Converter:
                         poses[body_id(name)] = pose_from_frame(body_state.frame)
         for key, body in list(self.bodies.items()):
             if key in poses:
-                self.bodies[key] = BodySpec(id=key, pose=poses[key], geometry=body.geometry)
+                self.bodies[key] = BodySpec(id=key, assembly_pose=poses[key], geometry=body.geometry)
             else:
-                self.report(f"{key}: never present unheld; design pose left at the origin")
+                self.report(f"{key}: never present unheld; assembly pose left at the origin")
 
     # --- --- pass 1: every movement as read --- ---
 
@@ -449,9 +449,9 @@ class _Converter:
     def mates(self) -> frozenset:
         """The joints of the finished structure, from the half ids.
 
-        - `J<a>-<b>_male` mates `J<a>-<b>_female` when both are in the design.
+        - `J<a>-<b>_male` mates `J<a>-<b>_female` when both are in the process.
         - A ground half (`G<n>-…_ground`) mates the ground body it stands on: the one whose walkable polygons are
-          nearest its design position seen from above (0 when it is above one; the nearest in height wins a tie).
+          nearest its assembly position seen from above (0 when it is above one; the nearest in height wins a tie).
         """
         pairs: Set[Tuple[str, str]] = set()
         footprints = {key: _footprints(body) for key, body in self.bodies.items() if key.startswith("ground/")}
@@ -467,14 +467,14 @@ class _Converter:
                 else:
                     unmated.append(key)
             elif footprints:
-                position = np.asarray(self.bodies[key].pose.position)
+                position = np.asarray(self.bodies[key].assembly_pose.position)
                 ground = min(footprints, key=lambda name: _footprint_distance(position, footprints[name]))
                 pairs.add(tuple(sorted((key, ground))))
                 gap = _footprint_distance(position, footprints[ground])[0]
                 if gap > 0.0:
                     self.notes.append(f"{key} stands {gap * 1000:.0f} mm beside {ground}, its nearest ground")
         if unmated:
-            self.notes.append(f"{len(unmated)} half(s) without a partner in the design (it sits on a bar the design "
+            self.notes.append(f"{len(unmated)} half(s) without a partner in the process (it sits on a bar the process "
                               f"leaves out): {', '.join(unmated)}")
         return frozenset(pairs)
 
@@ -598,7 +598,7 @@ class _Converter:
                                        supports_until=action.supports_until, label=action.label)
         self.notes.append(f"folded {len(folded)} untighten movement(s) into the ungrasp after them, as a loosen drive")
         self.notes.append(f"export against the replay: built bars at most {gaps['pose'] * 1000:.3g} mm from their "
-                          f"design pose, held bars' grasps at most {gaps['grasp'] * 1000:.3g} mm from the export's")
+                          f"assembly pose, held bars' grasps at most {gaps['grasp'] * 1000:.3g} mm from the export's")
         if self.filled:
             self.notes.append(f"{self.filled} configuration(s) listed only some joints; the others were taken from "
                               f"the robot's previous state, or zero")
@@ -612,8 +612,8 @@ class _Converter:
         return body if body.startswith("bars/") else self.bodies[body].mount
 
     def _mount(self, half: str) -> Pose:
-        """A half's pose in its bar's frame, from the two design poses."""
-        return compose(invert(self.bodies[self.bodies[half].mount].pose), self.bodies[half].pose)
+        """A half's pose in its bar's frame, from the two assembly poses."""
+        return compose(invert(self.bodies[self.bodies[half].mount].pose), self.bodies[half].assembly_pose)
 
     def _mounted_holders(self, action: "_RawAction", move: "_RawMovement") -> Tuple[Holder, ...]:
         """The holders of a bar the operator mounts, each with the bar's pose in its flange's frame.
@@ -629,13 +629,13 @@ class _Converter:
         return tuple(holders)
 
     def _support_holder(self, move: "_RawMovement", flange: str, bar: str, built: Set[str]) -> Holder:
-        """A support gripper's hold on a built bar: the bar's design pose in the flange frame, by forward kinematics."""
+        """A support gripper's hold on a built bar: the bar's assembly pose in the flange frame, by forward kinematics."""
         robot, link = split_link_id(flange)
         robot_state = move.robots.get(robot)
         if bar not in built or robot_state is None or robot_state.joints is None:
             raise ValueError(f"{move.id}: {robot} closes on {bar}, which is not built, or its joints are unknown")
         world = link_pose(self._files[robot][0], robot_state.base, robot_state.joints, link)
-        return Holder(flange, compose(invert(world), self.bodies[bar].pose))
+        return Holder(flange, compose(invert(world), self.bodies[bar].assembly_pose))
 
     def _half_at_tcp(self, holder: Holder, tool: str, bar: str) -> Optional[str]:
         """The male or ground half of a bar at a scaffolding tool's TCP, from the holder's grasp; None for a gripper.
@@ -658,7 +658,7 @@ class _Converter:
         """Track how far the export's own state is from the replayed one: built bars' poses, attached bars' grasps."""
         for bar in start.built:
             if bar in move.poses and bar not in start.attached:
-                gaps["pose"] = max(gaps["pose"], _gap(move.poses[bar], self.bodies[bar].pose))
+                gaps["pose"] = max(gaps["pose"], _gap(move.poses[bar], self.bodies[bar].assembly_pose))
         for bar, holders in start.attached.items():
             if bar in move.carried:
                 link, offset = move.carried[bar]
@@ -755,7 +755,7 @@ def _gap(a: Pose, b: Pose) -> float:
 
 def _footprints(body: BodySpec) -> List[np.ndarray]:
     """The walkable polygons of a ground body in world, each (n, 3): the top faces of its slabs (`_slab`)."""
-    matrix = body.pose.matrix()
+    matrix = body.assembly_pose.matrix()
     return [shape.vertices[:len(shape.vertices) // 2] @ matrix[:3, :3].T + matrix[:3, 3]
             for shape in body.geometry.collision]
 
@@ -804,35 +804,35 @@ def _body_geometry(rigid_body) -> Geometry:
 
 
 def _refuse_unsupported(movement) -> None:
-    """Raise if a movement holds data a design cannot carry, instead of dropping it.
+    """Raise if a movement holds data a process cannot carry, instead of dropping it.
 
     Raises:
         ValueError: For a trajectory, or a tool state that is hidden, configured or attached off its flange.
     """
     where = movement.movement_id
     if getattr(movement, "trajectory", None) is not None:
-        raise ValueError(f"{where}: has a trajectory; planned results are not part of a design (format §10)")
+        raise ValueError(f"{where}: has a trajectory; planned results are not part of a process (format §10)")
     for name, tool_state in movement.start_state.tool_states.items():
         if name.startswith("ObstacleRobot"):
             continue
         if tool_state.is_hidden:
-            raise ValueError(f"{where}: tool {name} is hidden; a design has no hidden tools")
+            raise ValueError(f"{where}: tool {name} is hidden; a process has no hidden tools")
         if tool_state.configuration is not None:
-            raise ValueError(f"{where}: tool {name} has a configuration; design tools have no joints")
+            raise ValueError(f"{where}: tool {name} has a configuration; process tools have no joints")
         frame = tool_state.attachment_frame
         if frame is not None and not np.allclose(np.asarray(frame.to_transformation().matrix), np.eye(4), atol=_SAME):
-            raise ValueError(f"{where}: tool {name} is attached off its flange; a design mounts tools on the flange")
+            raise ValueError(f"{where}: tool {name} is attached off its flange; a process mounts tools on the flange")
 
 
 def _model_geometry(model) -> Geometry:
     """A compas ToolModel's meshes in its base frame.
 
     Raises:
-        ValueError: If the tool has a joint that moves: a design tool is one rigid shape.
+        ValueError: If the tool has a joint that moves: a process tool is one rigid shape.
     """
     moving = [joint.name for joint in model.joints if joint.type != joint.FIXED]
     if moving:
-        raise ValueError(f"tool {model.name} has moving joints {moving}; a design tool is one rigid shape")
+        raise ValueError(f"tool {model.name} has moving joints {moving}; a process tool is one rigid shape")
     transformations = model.compute_transformations(model.zero_configuration())
 
     def shapes(which: str):
@@ -872,7 +872,7 @@ def _walkable_ground(path: Path, report: Callable[[str], None]) -> Dict[str, Bod
             report(f"ground/{name}: millimetres converted to metres")
         slabs = tuple(_slab(points[face]) for face in faces)
         key = f"ground/{name}"
-        bodies[key] = BodySpec(id=key, pose=Pose(), geometry=Geometry(slabs, slabs))
+        bodies[key] = BodySpec(id=key, assembly_pose=Pose(), geometry=Geometry(slabs, slabs))
     return bodies
 
 

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Dict, Optional, Tuple
 
-from .types import Design, Movement
+from .types import Process, Movement
 
 #: Assumed joints (or None) and where they came from: a movement id, "own target", "<id> (later)" or "".
 Assumed = Tuple[Optional[Dict[str, float]], str]
@@ -28,17 +28,17 @@ def _target(movement: Movement, robot: str) -> Dict[str, float]:
     return dict(movement.target.joints.get(robot, {})) if movement.target is not None else {}
 
 
-def assumed_start_all(design: Design) -> dict[tuple[str, str], Assumed]:
+def assumed_start_all(process: Process) -> dict[tuple[str, str], Assumed]:
     """Assumed start joints of every movement, by the rule in the module docstring.
 
     Args:
-        design: The design.
+        process: The process.
 
     Returns:
         dict[tuple[str, str], tuple[dict[str, float] | None, str]]: (action id, movement id) ->
             (joints, source). Movements with authored joints, or with nothing known, get (None, "").
     """
-    steps = [(action.id, action.robot, movement) for action, movement in design.movements()]
+    steps = [(action.id, action.robot, movement) for action, movement in process.movements()]
     result: Dict[Tuple[str, str], Assumed] = {}
     # Robot id -> (last known joint values, id of the movement they came from).
     last: Dict[str, Tuple[Dict[str, float], str]] = {}
@@ -73,11 +73,11 @@ def assumed_start_all(design: Design) -> dict[tuple[str, str], Assumed]:
     return result
 
 
-def assumed_joints(design: Design, action_id: str, movement_id: str) -> tuple[dict[str, float] | None, str]:
+def assumed_joints(process: Process, action_id: str, movement_id: str) -> tuple[dict[str, float] | None, str]:
     """Assumed start joints of one movement. Walks the whole schedule; use `assumed_start_all` for many.
 
     Args:
-        design: The design.
+        process: The process.
         action_id: The action.
         movement_id: One of its movements.
 
@@ -88,4 +88,4 @@ def assumed_joints(design: Design, action_id: str, movement_id: str) -> tuple[di
     Raises:
         KeyError: If the action has no such movement.
     """
-    return assumed_start_all(design)[(action_id, movement_id)]
+    return assumed_start_all(process)[(action_id, movement_id)]

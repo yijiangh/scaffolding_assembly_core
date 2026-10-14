@@ -1,5 +1,5 @@
 """
-Mesh files of a design (format §6): read with trimesh, written as plain OBJ text.
+Mesh files of a process (format §6): read with trimesh, written as plain OBJ text.
 
 * `MeshCache` gives every shape naming the same file the same TriMesh object, so mirrors build it once.
 ? A write and read keeps a mesh as it is, except that unused vertices are dropped.

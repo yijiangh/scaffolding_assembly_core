@@ -1,5 +1,5 @@
 """
-Read a design folder (doc/design_format.md) into a `Design`: check every file (A1, A2), parse, validate (A3–A13).
+Read a process folder (doc/process_format.md) into a `Process`: check every file (A1, A2), parse, validate (A3–A13).
 
 Files written by different commits of the same schema read fine; another schema raises `SchemaMismatch`.
 """
@@ -14,25 +14,25 @@ from ..geometry import BoxShape, CylinderShape, Geometry, Pose, Shape, TriMesh
 from ..robot import Tool
 from .meshes import MeshCache
 from ..urdf import robot_files_hash
-from .types import (Action, BodySpec, Design, DesignError, Holder, LineSpec, Movement, Producer, RobotSpec, RobotTarget,
+from .types import (Action, BodySpec, Process, ProcessError, Holder, LineSpec, Movement, Producer, RobotSpec, RobotTarget,
                     RobotState, SchemaMismatch, State, Target, ToolState, Writer)
 from .validate import validate
 from .version import SCHEMA
 
-DESIGN_FORMAT, ACTION_FORMAT = "husky_design", "husky_design/action"
+PROCESS_FORMAT, ACTION_FORMAT = "husky_process", "husky_process/action"
 
 #: Every object of the format (A2): key -> type, a leading "?" marking an optional key. Types: "str", "bool", "num",
 #: "nums" (a list of numbers), "pose" (7 numbers, else A7), "notes", "json" (anything), another object's name;
 #: "{t" is a map of t, "[t" a list of t, "null|t" also allows null.
 KEYS: Dict[str, Dict[str, str]] = {
-    "design": {"format": "str", "writer": "writer", "?producer": "producer", "robots": "{robot", "tools": "{tool",
+    "process": {"format": "str", "writer": "writer", "?producer": "producer", "robots": "{robot", "tools": "{tool",
                "bodies": "{body", "?mates": "[[str", "schedule": "[str"},
     "writer": {"schema": "num", "library": "str", "commit": "str", "dirty": "bool"},
     "producer": {"repo": "str", "commit": "str", "dirty": "bool", "command": "str"},
     "robot": {"urdf": "str", "srdf": "str", "?files_hash": "str", "?serial": "null|str", "?tools": "{str",
               "?ground_links": "[str"},
     "tool": {"collision": "[shape", "?visual": "[shape", "tcp": "pose", "kind": "str"},
-    "body": {"pose": "pose", "collision": "[shape", "?visual": "[shape", "?label": "str", "?part": "str",
+    "body": {"assembly_pose": "pose", "collision": "[shape", "?visual": "[shape", "?label": "str", "?part": "str",
              "?markers": "{nums", "?mount": "str", "?pose_in_tcp": "pose"},
     "shape": {"?mesh": "str", "?box": "nums", "?cylinder": "nums", "?origin": "pose"},
     "action": {"format": "str", "writer": "writer", "id": "str", "type": "str", "robot": "str", "bar": "str",
@@ -55,49 +55,49 @@ KEYS: Dict[str, Dict[str, str]] = {
                  "solved_against": "solved_against", "movements": "{result"},
     "planner": {"name": "str", "?repo": "str", "?commit": "str", "?ik_backend": "str", "?artifacts": "str",
                 "?settings": "json"},
-    "solved_against": {"design": "str", "action": "str"},
+    "solved_against": {"process": "str", "action": "str"},
     "result": {"status": "str", "?reason": "str", "?bases": "{pose", "?start": "{{num", "?start_overridden": "bool",
                "?end": "{{num", "?trajectory": "null|trajectory", "?path_poses": "{[pose"},
     "trajectory": {"robot": "str", "joint_names": "[str", "positions": "[nums", "?times": "nums"},
 }
 
 
-def read(folder: Path) -> Design:
-    """Read and validate a design folder.
+def read(folder: Path) -> Process:
+    """Read and validate a process folder.
 
     Args:
-        folder: The design folder (holds `design.json`).
+        folder: The process folder (holds `process.json`).
 
     Returns:
-        Design: With `folder` and robot file paths absolute.
+        Process: With `folder` and robot file paths absolute.
 
     Raises:
         SchemaMismatch: If any file has another schema; names the commit that wrote it.
-        DesignError: If a file is missing or malformed, or the design breaks a file check (every problem found is
+        ProcessError: If a file is missing or malformed, or the process breaks a file check (every problem found is
             listed, each starting with its check, e.g. "A4: ...").
     """
     folder = Path(folder).resolve()
-    manifest_path = folder / "design.json"
+    manifest_path = folder / "process.json"
     if not manifest_path.is_file():
-        raise DesignError([f"A4: no design.json in {folder}"])
+        raise ProcessError([f"A4: no process.json in {folder}"])
 
     # * 1. Load every file and check its kind and schema (A1), then its keys and types (A2), before parsing.
     problems: List[str] = []
-    manifest = load_json(manifest_path, "design.json", DESIGN_FORMAT, problems)
+    manifest = load_json(manifest_path, "process.json", PROCESS_FORMAT, problems)
     raw_actions = {}
     for path in sorted((folder / "actions").glob("*.json")):
         raw_actions[path.stem] = load_json(path, f"actions/{path.name}", ACTION_FORMAT, problems)
     if manifest is not None:
-        check_keys(manifest, "design", "design.json", problems)
+        check_keys(manifest, "process", "process.json", problems)
     for name, raw in raw_actions.items():
         if raw is not None:
             check_keys(raw, "action", f"actions/{name}.json", problems)
     if problems:
-        raise DesignError(problems)
+        raise ProcessError(problems)
 
     # * 2. Parse. File-only problems (a missing mesh, a wrong action id) are reported with what `validate` finds.
     meshes = _Meshes(folder, problems)
-    design = Design(folder=folder, writer=_writer(manifest["writer"]),
+    process = Process(folder=folder, writer=_writer(manifest["writer"]),
                     robots={key: _robot(key, value, folder) for key, value in manifest["robots"].items()},
                     tools={key: _tool(key, value, meshes) for key, value in manifest["tools"].items()},
                     bodies={key: _body(key, value, meshes) for key, value in manifest["bodies"].items()},
@@ -105,14 +105,14 @@ def read(folder: Path) -> Design:
                     actions={name: _action(raw) for name, raw in raw_actions.items()},
                     mates=frozenset(tuple(sorted(pair)) for pair in manifest.get("mates", ())),
                     producer=_producer(manifest["producer"]) if "producer" in manifest else None)
-    for name, action in design.actions.items():
+    for name, action in process.actions.items():
         if action.id != name:
             problems.append(f"A5: actions/{name}.json has id {action.id!r}, not its file name")
     for pair in manifest.get("mates", ()):
         if len(pair) != 2:
-            problems.append(f"A12: design.json mates: {pair!r} is not a pair")
+            problems.append(f"A12: process.json mates: {pair!r} is not a pair")
     for robot_id, raw in manifest["robots"].items():
-        robot = design.robots[robot_id]
+        robot = process.robots[robot_id]
         if "files_hash" in raw and robot.urdf.is_file() and robot.srdf.is_file():
             try:
                 found = robot_files_hash(robot.urdf, robot.srdf)
@@ -120,17 +120,17 @@ def read(folder: Path) -> Design:
                 found = None
                 problems.append(f"A4: {robot_id}: {error}")
             if found is not None and found != raw["files_hash"]:
-                problems.append(f"A4: {robot_id}: the robot files changed since the design was written "
+                problems.append(f"A4: {robot_id}: the robot files changed since the process was written "
                                 f"(files_hash does not match)")
 
     # * 3. Validate: every problem at once.
     try:
-        validate(design)
-    except DesignError as error:
+        validate(process)
+    except ProcessError as error:
         problems.extend(error.problems)
     if problems:
-        raise DesignError(problems)
-    return design
+        raise ProcessError(problems)
+    return process
 
 
 # --- --- --- --- --- FILES --- --- --- --- ---
@@ -145,7 +145,7 @@ def load_json(path: Path, name: str, kind: str, problems: List[str]) -> Optional
 
     Args:
         path: The file.
-        name: Its path in the design folder, for messages.
+        name: Its path in the process folder, for messages.
         kind: The `format` it must have.
         problems: Gets one line per problem.
 
@@ -178,8 +178,8 @@ def check_keys(value: Any, kind: str, where: str, problems: List[str]) -> None:
 
     Args:
         value: The value.
-        kind: A type as in `KEYS`, e.g. "design" or "[str".
-        where: Where it is, for messages, e.g. "design.json bodies bars/B1".
+        kind: A type as in `KEYS`, e.g. "process" or "[str".
+        where: Where it is, for messages, e.g. "process.json bodies bars/B1".
         problems: Gets one line per problem.
     """
     if kind.startswith("null|"):
@@ -250,7 +250,7 @@ class _Meshes:
         """The mesh of a `{"mesh": ...}` shape, moved by its `origin`; None (and a problem noted) if missing.
 
         Args:
-            reference: The file, relative to the design folder.
+            reference: The file, relative to the process folder.
             origin: The shape's `origin`, or None.
             owner: Id of the tool or body, for messages.
 
@@ -269,7 +269,7 @@ class _Meshes:
         return self.moved[key]
 
 
-# --- --- --- --- --- DESIGN.JSON --- --- --- --- ---
+# --- --- --- --- --- PROCESS.JSON --- --- --- --- ---
 
 def _pose(values) -> Pose:
     """A pose from `[x, y, z, qx, qy, qz, qw]` (its length is checked by `check_keys`)."""
@@ -326,7 +326,7 @@ def _tool(key: str, raw: Dict[str, Any], meshes: _Meshes) -> Tool:
 
 def _body(key: str, raw: Dict[str, Any], meshes: _Meshes) -> BodySpec:
     """A body entry."""
-    return BodySpec(id=key, pose=_pose(raw["pose"]), geometry=_geometry(raw, meshes, key),
+    return BodySpec(id=key, assembly_pose=_pose(raw["assembly_pose"]), geometry=_geometry(raw, meshes, key),
                     label=str(raw.get("label", "")), part=str(raw.get("part", "")),
                     markers={name: tuple(float(v) for v in point) for name, point in raw.get("markers", {}).items()},
                     mount=raw.get("mount"),

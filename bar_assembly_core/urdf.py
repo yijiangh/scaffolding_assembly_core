@@ -4,7 +4,7 @@ URDF and SRDF files, and the conventions of the UR arms every user of the core s
 URDFs are read with yourdfpy (`load_urdf`, as the monitor's viewer does): names, joints, mesh references and each
 link's shapes (`link_geometry`). SRDFs, copying and path rewriting use plain `xml.etree`, so comments survive.
 
-! A design URDF's mesh paths are relative to the URDF: resolve them against its folder, not the working directory.
+! A process URDF's mesh paths are relative to the URDF: resolve them against its folder, not the working directory.
 """
 
 from __future__ import annotations
@@ -83,7 +83,7 @@ def urdf_joints(urdf: Path) -> dict[str, str]:
 
 
 def movable_joints(urdf: Path, srdf: Path) -> tuple[str, ...]:
-    """The joints a design state must list, in URDF order: all but fixed, SRDF-passive (wheels) and mimic ones.
+    """The joints a process state must list, in URDF order: all but fixed, SRDF-passive (wheels) and mimic ones.
 
     Args:
         urdf: The URDF file.
@@ -170,7 +170,7 @@ def _locate(filename: str, urdf_folder: Path, package_dirs: Sequence[Path]) -> T
     if filename.startswith(PACKAGE_SCHEME):
         below = filename[len(PACKAGE_SCHEME):]
     else:
-        # ? A design's own URDF already keeps its meshes under `meshes/`: keep that path, or a rewrite nests it again.
+        # ? A process's own URDF already keeps its meshes under `meshes/`: keep that path, or a rewrite nests it again.
         for base in (urdf_folder.resolve() / "meshes", urdf_folder.resolve()):
             try:
                 below = source.relative_to(base).as_posix()
@@ -223,12 +223,12 @@ def _robot_copy(urdf: Path, srdf: Path, package_dirs: Sequence[Path]) -> Tuple[b
 
 
 def copy_robot(urdf: Path, srdf: Path, dest_dir: Path, package_dirs: Sequence[Path] = ()) -> tuple[Path, Path]:
-    """Copy a robot into a design: `robot.urdf`, `robot.srdf`, and every mesh under `meshes/`, named relatively.
+    """Copy a robot into a process: `robot.urdf`, `robot.srdf`, and every mesh under `meshes/`, named relatively.
 
     Args:
         urdf: Source URDF.
         srdf: Source SRDF.
-        dest_dir: The robot's folder in the design, e.g. `<design>/robots/cindy`. Created if missing.
+        dest_dir: The robot's folder in the process, e.g. `<process>/robots/cindy`. Created if missing.
         package_dirs: Folders holding packages named by `package://`, or package folders themselves.
 
     Returns:
@@ -260,7 +260,7 @@ _FILES_HASHES: Dict[tuple, str] = {}
 def robot_files_hash(urdf: Path, srdf: Path, package_dirs: Sequence[Path] = ()) -> str:
     """The SHA-256 of a robot's files as `copy_robot` writes them: URDF, SRDF and every mesh with its path.
 
-    The same for a source robot and for its copy in a design, so a design hashes the same in memory and on disk.
+    The same for a source robot and for its copy in a process, so a process hashes the same in memory and on disk.
 
     Raises:
         FileNotFoundError: If a referenced mesh (or its package) is missing.
@@ -298,7 +298,7 @@ def link_geometry(urdf: Path, package_dirs: Sequence[Path] = ()) -> Dict[str, Ge
 
     Args:
         urdf: The URDF.
-        package_dirs: Folders holding packages named by `package://` (a design's URDF needs none).
+        package_dirs: Folders holding packages named by `package://` (a process's URDF needs none).
 
     Returns:
         dict[str, Geometry]: Link name -> its shapes.

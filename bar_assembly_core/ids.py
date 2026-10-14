@@ -1,7 +1,7 @@
 """
 Ids: one canonical id per object, a path such as "bars/B1", "robots/cindy" or "robots/cindy/left_ur_arm_tool0".
 
-Where two id spaces meet (a planned robot and the real one, a mocap rigid body and a design body, design ids and a
+Where two id spaces meet (a planned robot and the real one, a mocap rigid body and a process body, process ids and a
 plugin's prefixed scene ids) an `IdMap` lists every pair; an id it does not list is refused, never guessed.
 """
 

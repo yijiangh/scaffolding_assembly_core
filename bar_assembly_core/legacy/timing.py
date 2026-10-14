@@ -36,6 +36,6 @@ class Stopwatch:
         return perf_counter() - self._start
 
     def summary(self) -> str:
-        """The total and every lap, e.g. "4.2 s: read design 0.1 s, cells 4.1 s"."""
+        """The total and every lap, e.g. "4.2 s: read process 0.1 s, cells 4.1 s"."""
         laps = ", ".join(f"{name} {seconds:.1f} s" for name, seconds in self.laps)
         return f"{self.total:.1f} s" + (f": {laps}" if laps else "")

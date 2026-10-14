@@ -1,5 +1,5 @@
 """
-The design in memory, schema 2.1: one frozen dataclass per object of doc/design_format.md, fields named as the file keys.
+The process in memory, schema 2.1: one frozen dataclass per object of doc/process_format.md, fields named as the file keys.
 
 ! Never change the dicts inside after construction; build a new object with `dataclasses.replace`.
 """
@@ -39,16 +39,16 @@ Note = Union[str, int, float, bool]
 
 # --- --- --- --- --- ERRORS --- --- --- --- ---
 
-class DesignError(ValueError):
-    """A design breaks the format. `problems` lists every broken rule found, one line each."""
+class ProcessError(ValueError):
+    """A process breaks the format. `problems` lists every broken rule found, one line each."""
 
     def __init__(self, problems):
         """Collect `problems`, one string per broken rule."""
         self.problems = list(problems)
-        super().__init__("invalid design:\n  " + "\n  ".join(self.problems))
+        super().__init__("invalid process:\n  " + "\n  ".join(self.problems))
 
 
-class SchemaMismatch(DesignError):
+class SchemaMismatch(ProcessError):
     """A file was written with another schema. Read it with the library at `commit`."""
 
     def __init__(self, path: str, schema: float, commit: str, expected: float):
@@ -58,7 +58,7 @@ class SchemaMismatch(DesignError):
                           f"check out bar_assembly_core at commit {commit} to read it"])
 
 
-# --- --- --- --- --- DESIGN-LEVEL OBJECTS --- --- --- --- ---
+# --- --- --- --- --- PROCESS-LEVEL OBJECTS --- --- --- --- ---
 
 @dataclass(frozen=True)
 class Writer:
@@ -72,7 +72,7 @@ class Writer:
 
 @dataclass(frozen=True)
 class Producer:
-    """Which code made the design (format §9), e.g. Rhino's `RSExportDesign`."""
+    """Which code made the process (format §9), e.g. Rhino's `RSExportProcess`."""
 
     repo: str
     commit: str
@@ -104,18 +104,18 @@ class RobotSpec:
 
 @dataclass(frozen=True)
 class BodySpec:
-    """A body (format §4.3). `pose` is its design pose in world; geometry and markers are in the body frame.
+    """A body (format §4.3). `assembly_pose` is where it stands in the finished assembly, in world; geometry and markers are in the body frame.
 
     Attributes:
         part: What kind of half it is, e.g. "T20/Female": a label, for people and mocap; empty if none.
         markers: Marker label -> (x, y, z), metres, for placement checks and mocap registration.
-        mount: A connector half's bar: the half is fixed to it for the whole design and follows it. None otherwise.
+        mount: A connector half's bar: the half is fixed to it for the whole process and follows it. None otherwise.
         pose_in_tcp: A connector half a tool acts on: the half's pose in the frame of the tool centre point on it
             (identity when the two frames coincide). None: no tool may be put on it. B14 checks grasps against it.
     """
 
     id: str
-    pose: Pose
+    assembly_pose: Pose
     geometry: Geometry
     label: str = ""
     part: str = ""
@@ -128,7 +128,7 @@ class BodySpec:
 
 @dataclass(frozen=True)
 class RobotState:
-    """A robot at one moment; `base` and `joints` are None where the design does not decide them."""
+    """A robot at one moment; `base` and `joints` are None where the process does not decide them."""
 
     base: Optional[Pose]
     joints: Optional[Dict[str, float]]
@@ -152,14 +152,14 @@ class ToolState:
 
 @dataclass(frozen=True)
 class State:
-    """One complete moment (format §5.2): readable on its own, together with the design.
+    """One complete moment (format §5.2): readable on its own, together with the process.
 
     Attributes:
         robots: Every robot; None = not in the scene.
         present: Bars and ground in the scene; halves are present with their bar, obstacles always.
         attached: Bar -> the robot links holding it, the first one setting its pose while it is not built.
-        built: Bars fixed in the structure: they take their design pose.
-        poses: World poses of present bars that are neither built nor attached, where away from the design pose.
+        built: Bars fixed in the structure: they take their assembly pose.
+        poses: World poses of present bars that are neither built nor attached, where away from the assembly pose.
         tools: Every mounted tool's state; None = its robot is absent.
     """
 
@@ -318,15 +318,15 @@ class Action:
 
 
 @dataclass(frozen=True)
-class Design:
-    """A whole design folder (format §2).
+class Process:
+    """A whole process folder (format §2).
 
     Attributes:
-        folder: Where it was read from or written to; None for a design only in memory.
+        folder: Where it was read from or written to; None for a process only in memory.
         actions: Keyed by action id; `schedule` gives their order.
         mates: Joints of the finished structure, each pair sorted: a male and a female half, or a ground half and a
             ground body. They never move anything; their status follows from the state (`relations.mate_status`).
-        producer: The code that made the design, or None.
+        producer: The code that made the process, or None.
     """
 
     folder: Optional[Path]
@@ -355,11 +355,11 @@ class Design:
                 yield action, movement
 
     def scene_at(self, movement: Movement) -> Scene:
-        """The world at the start of one movement; it shares nothing mutable with the design (`scenes.scene_at`).
+        """The world at the start of one movement; it shares nothing mutable with the process (`scenes.scene_at`).
 
-        ! Run it when the design or the movement changes, not every tick.
+        ! Run it when the process or the movement changes, not every tick.
         """
-        # ? Imported here: the scene and its robots stay out of `import design`.
+        # ? Imported here: the scene and its robots stay out of `import process`.
         from .scenes import scene_at
         return scene_at(self, movement)
 

@@ -1,16 +1,16 @@
-"""Shared builders for the design tests: tiny robot files and a small valid two-robot design."""
+"""Shared builders for the process tests: tiny robot files and a small valid two-robot process."""
 
 from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path
 
-from bar_assembly_core.design import (Action, BodySpec, Design, Holder, LineSpec, Movement, Producer, RobotSpec,
+from bar_assembly_core.process import (Action, BodySpec, Process, Holder, LineSpec, Movement, Producer, RobotSpec,
                                       RobotState, State, Target, ToolState, Writer)
 from bar_assembly_core.geometry import BoxShape, CylinderShape, Geometry, Pose, TriMesh, compose, invert
 from bar_assembly_core.kinematics import link_pose
 from bar_assembly_core.robot import Tool
-from bar_assembly_core.design.meshes import write_mesh
+from bar_assembly_core.process.meshes import write_mesh
 
 WRITER = Writer(2, "design_io", "test", False)
 #: Joints a state must list for the fake robot (the wheel is passive, the tool0 joints fixed).
@@ -102,8 +102,8 @@ def rounded(pose: Pose) -> Pose:
     return Pose(tuple(round(v, 12) for v in pose.position), tuple(round(v, 12) for v in pose.orientation))
 
 
-def build_design(folder: Path) -> Design:
-    """A small schema 2 design in memory that passes every file and plan check; robot files go to `folder/source/`.
+def build_process(folder: Path) -> Process:
+    """A small schema 2 process in memory that passes every file and plan check; robot files go to `folder/source/`.
 
     * The plan: Cindy mounts, grasps and inserts B1 on its ground half (G1 on WG0); Alice closes her gripper on the
       built B1 before Cindy ungrasps and retreats, so B1 has two holders; Cindy mounts B2 from a rack and inserts its
@@ -117,7 +117,7 @@ def build_design(folder: Path) -> Design:
         folder: A scratch folder (e.g. pytest's tmp_path).
 
     Returns:
-        Design: Robots `robots/alice` and `robots/cindy`, five actions.
+        Process: Robots `robots/alice` and `robots/cindy`, five actions.
     """
     urdf, srdf = write_robot_files(folder / "source")
     robots = {
@@ -137,7 +137,7 @@ def build_design(folder: Path) -> Design:
     inserted = {**joints(0.25), "left_joint1": 0.5}
 
     # * Poses that agree with the geometry (plan check B14): the bars' grasps follow from the tool's TCP, the part
-    #   seat and the mount offset; B1's design pose is where Cindy's flange holds it at the end of the insert.
+    #   seat and the mount offset; B1's assembly pose is where Cindy's flange holds it at the end of the insert.
     on_g1, on_j1 = Pose((0.0, 0.0, 0.05)), Pose((0.0, 0.0, 0.0))
     ground_seat = Pose(orientation=(0.0, 0.0, 1.0, 0.0))
     grasp_b1 = rounded(compose(compose(tcp, ground_seat), invert(on_g1)))
@@ -261,26 +261,26 @@ def build_design(folder: Path) -> Design:
                      target=Target.of(joints={"robots/alice": joints(0.9)}, on={"tools/alice/Grip": None})),
         ))
     actions = (b1_joint, b1_hold, b1_release, b2_joint, b1_hold_release)
-    return Design(folder=None, writer=WRITER, robots=robots, tools=tools, bodies=bodies,
+    return Process(folder=None, writer=WRITER, robots=robots, tools=tools, bodies=bodies,
                   schedule=tuple(action.id for action in actions), actions={a.id: a for a in actions},
                   mates=mates, producer=Producer("rhino", "abc123", False, "RSExportAllBarActions"))
 
 
-# --- --- --- --- --- CHANGING A DESIGN --- --- --- --- ---
+# --- --- --- --- --- CHANGING A PROCESS --- --- --- --- ---
 
-def with_action(design: Design, action_id: str, **changes) -> Design:
-    """The design with one action changed (`dataclasses.replace` fields)."""
-    return replace(design, actions={**design.actions, action_id: replace(design.actions[action_id], **changes)})
+def with_action(process: Process, action_id: str, **changes) -> Process:
+    """The process with one action changed (`dataclasses.replace` fields)."""
+    return replace(process, actions={**process.actions, action_id: replace(process.actions[action_id], **changes)})
 
 
-def with_movement(design: Design, action_id: str, index: int, **changes) -> Design:
-    """The design with one movement changed."""
-    movements = list(design.actions[action_id].movements)
+def with_movement(process: Process, action_id: str, index: int, **changes) -> Process:
+    """The process with one movement changed."""
+    movements = list(process.actions[action_id].movements)
     movements[index] = replace(movements[index], **changes)
-    return with_action(design, action_id, movements=tuple(movements))
+    return with_action(process, action_id, movements=tuple(movements))
 
 
-def with_start(design: Design, action_id: str, index: int, **changes) -> Design:
-    """The design with one movement's start state changed."""
-    start = design.actions[action_id].movements[index].start
-    return with_movement(design, action_id, index, start=replace(start, **changes))
+def with_start(process: Process, action_id: str, index: int, **changes) -> Process:
+    """The process with one movement's start state changed."""
+    start = process.actions[action_id].movements[index].start
+    return with_movement(process, action_id, index, start=replace(start, **changes))

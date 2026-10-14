@@ -1,4 +1,4 @@
-"""The two benchmark exports convert into valid schema 2 designs, with the plan checks' known findings only.
+"""The two benchmark exports convert into valid schema 2 processes, with the plan checks' known findings only.
 
 Runs on the exports in the folder named by HUSKY_DESIGN_STUDY (holding `260814_RobArch_support_ik` and
 `260920_RobArch_demo_revamp_backup`) with the robot files under HUSKY_DATA (the monitor's `data/`, holding
@@ -12,15 +12,15 @@ from pathlib import Path
 
 import pytest
 
-from bar_assembly_core.design import read
-from bar_assembly_core.design.plan_check import check_plan
+from bar_assembly_core.process import read
+from bar_assembly_core.process.plan_check import check_plan
 from bar_assembly_core.legacy.conversion import convert_export
 
 STUDY = Path(os.environ.get("HUSKY_DESIGN_STUDY", "/nonexistent"))
 DATA = Path(os.environ.get("HUSKY_DATA", "/nonexistent"))
 #: Plan check errors that are in the exports themselves.
 #: - B11: in the next hold release, the export still shows Alice at her grasp pose after her retreat.
-#: - B14 (260920 only): the export's joints at B16's release put B16 295 mm from its design pose.
+#: - B14 (260920 only): the export's joints at B16's release put B16 295 mm from its assembly pose.
 KNOWN_ERRORS = {
     "260814_RobArch_support_ik": {
         "B11: B3_HR_retreat -> B7_HR_open: robots/alice joints jump by 0.444",
@@ -42,24 +42,24 @@ def converted(request, tmp_path_factory):
     export = STUDY / request.param
     if not export.is_dir():
         pytest.skip(f"{export} is missing")
-    folder = convert_export(export, tmp_path_factory.mktemp("design") / request.param, DATA, report=lambda _: None)
+    folder = convert_export(export, tmp_path_factory.mktemp("process") / request.param, DATA, report=lambda _: None)
     return request.param, read(folder)
 
 
 def test_counts_and_size(converted):
     """48 actions, 184 movements (tighten merged into the insert, untighten folded into the ungrasp), 36 mates."""
-    _, design = converted
-    assert len(design.actions) == 48 and sum(len(action.movements) for action in design.actions.values()) == 184
-    assert len(design.mates) == 36 and all(body.mount for key, body in design.bodies.items()
+    _, process = converted
+    assert len(process.actions) == 48 and sum(len(action.movements) for action in process.actions.values()) == 184
+    assert len(process.mates) == 36 and all(body.mount for key, body in process.bodies.items()
                                            if key.startswith("joints/"))
-    size = sum(path.stat().st_size for path in (design.folder / "actions").glob("*.json"))
+    size = sum(path.stat().st_size for path in (process.folder / "actions").glob("*.json"))
     assert size < 0.76e6
 
 
 def test_plan_checks(converted):
     """Only the exports' own inconsistencies are errors; the four halves on fake bars are warnings."""
-    name, design = converted
-    report = check_plan(design)
+    name, process = converted
+    report = check_plan(process)
     assert set(report.errors) == KNOWN_ERRORS[name]
     assert [line.split(" ")[2] for line in report.warnings] == list(UNMATED)
     assert all(line.startswith("B5:") for line in report.warnings)
@@ -70,10 +70,10 @@ def test_jointing_and_release(converted):
 
     The ungrasp backs the jointing screws off; movements are named by role, and `on` changes in targets.
     """
-    _, design = converted
-    assert [m.id for m in design.actions["B10_J"].movements] == [
+    _, process = converted
+    assert [m.id for m in process.actions["B10_J"].movements] == [
         "B10_J_load", "B10_J_place_bar", "B10_J_grasp", "B10_J_transfer", "B10_J_insert"]
-    mount, grasp, transfer, insert = design.actions["B10_J"].movements[1:]
+    mount, grasp, transfer, insert = process.actions["B10_J"].movements[1:]
     assert mount.ends_on == "operator" and [h.to.split("/")[-1] for h in mount.target.attached["bars/B10"]] == [
         "left_ur_arm_tool0", "right_ur_arm_tool0"]
     assert mount.target.on == {"tools/cindy/AT3L": "joints/J3-10_male", "tools/cindy/AT3R": "joints/J7-10_male"}
@@ -83,7 +83,7 @@ def test_jointing_and_release(converted):
     assert (insert.path, insert.coupled, insert.controller, insert.ends_on) == ("linear", True, "compliant", "tools")
     assert insert.drives == {"tools/cindy/AT3L": "tighten", "tools/cindy/AT3R": "tighten"} and "bars/B10" in insert.target.built
     assert all(abs(line.distance - 0.015) < 1e-6 for line in insert.line.values())
-    ungrasp, retreat, home = design.actions["B10_R"].movements
+    ungrasp, retreat, home = process.actions["B10_R"].movements
     assert [m.id for m in (ungrasp, retreat, home)] == ["B10_R_ungrasp", "B10_R_retreat", "B10_R_home"]
     assert not ungrasp.arms and ungrasp.target.attached == {} and set(ungrasp.grip_change.values()) == {"open"}
     assert ungrasp.drives == {"tools/cindy/AT3L": "loosen", "tools/cindy/AT3R": "loosen"} and ungrasp.target.built is None
@@ -91,18 +91,18 @@ def test_jointing_and_release(converted):
     assert retreat.target.on == {"tools/cindy/AT3L": None, "tools/cindy/AT3R": None}
     assert home.start.tools["tools/cindy/AT3L"].on is None
     assert not {"lm_axis", "lm_distance_mm", "retreat_axes_world", "ends_on", "planner_fills"} & {
-        key for action in design.actions.values() for movement in action.movements for key in movement.notes}
+        key for action in process.actions.values() for movement in action.movements for key in movement.notes}
 
 
 def test_support_hold(converted):
     """Alice holds the built B3 from her close until her open; until Cindy's ungrasp B3 has both robots' holders."""
-    _, design = converted
-    to_grasp, close = design.actions["B3_H"].movements[-2:]
+    _, process = converted
+    to_grasp, close = process.actions["B3_H"].movements[-2:]
     assert (to_grasp.id, close.id) == ("B3_H_to_grasp", "B3_H_close")
     assert to_grasp.target.on == {"tools/alice/SupportGripper": "bars/B3"}
     assert close.start.tools["tools/alice/SupportGripper"].on == "bars/B3"
-    ungrasp = design.actions["B3_R"].movements[0]
+    ungrasp = process.actions["B3_R"].movements[0]
     assert "bars/B3" in ungrasp.start.built
     assert {holder.to.split("/")[1] for holder in ungrasp.start.attached["bars/B3"]} == {"cindy", "alice"}
-    release = design.actions["B3_HR"].movements[0]
+    release = process.actions["B3_HR"].movements[0]
     assert release.target.attached.get("bars/B3") is None and {"bars/B4", "bars/B9"} <= release.start.built

@@ -26,7 +26,7 @@ class Tool:
     """A tool mounted on a flange (format §4.2). Geometry and `tcp` are in the flange link frame.
 
     Attributes:
-        id: "tools/<robot>/<tool>", e.g. "tools/cindy/AT3L" (a design's) or "tools/a200-0806/left_ur_arm" (a live
+        id: "tools/<robot>/<tool>", e.g. "tools/cindy/AT3L" (a process's) or "tools/a200-0806/left_ur_arm" (a live
             robot's).
         kind: The end effector kind, e.g. "scaffolding_v3".
 
@@ -72,7 +72,7 @@ class RobotModel:
     def link_geometry(self) -> Mapping[str, Geometry]:
         """dict[str, Geometry]: Link -> its URDF shapes in the link frame (`urdf.link_geometry`), read on first use.
 
-        ! Mesh paths must resolve without packages (relative, absolute or `file://`), as in a design's URDF.
+        ! Mesh paths must resolve without packages (relative, absolute or `file://`), as in a process's URDF.
         """
         return link_geometry(self.urdf)
 

@@ -5,7 +5,7 @@ A file can pass the file checks (`validate`) and still fail here, e.g. a half-fi
 block execution; warnings are reported. Only B13 (SRDF groups), B14 and B15 (forward kinematics) read the robot files.
 
 `unreached_targets` is B15 alone, as data: the targets whose joints no longer reach their link poses, e.g. a bar moved
-after its inverse kinematics was solved. A design source asks it which of its solutions are stale.
+after its inverse kinematics was solved. A process source asks it which of its solutions are stale.
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ from ..ids import split_link_id
 from ..kinematics import chain_joints, link_pose, link_poses
 from ..urdf import srdf_group_tips
 from .relations import ENGAGED, bar_of, mate_status, mount_offset
-from .types import BAR_PREFIX, GROUND_PREFIX, HALF_PREFIX, Action, Design, Holder, Movement, RobotState, State
+from .types import BAR_PREFIX, GROUND_PREFIX, HALF_PREFIX, Action, Process, Holder, Movement, RobotState, State
 
 #: How far a grasp may be from the geometry (B14), metres and radians.
 GRASP_TOLERANCE: Tuple[float, float] = (1e-4, 1e-3)
@@ -66,22 +66,22 @@ class PlanReport:
         return not self.errors
 
 
-def check_plan(design: Design, *, geometry: bool = True) -> PlanReport:
-    """Run the plan checks B1–B15 on a design that passed the file checks.
+def check_plan(process: Process, *, geometry: bool = True) -> PlanReport:
+    """Run the plan checks B1–B15 on a process that passed the file checks.
 
     Args:
-        design: The design.
+        process: The process.
         geometry: Also run B13, B14 and B15, which read the robot files.
 
     Returns:
         PlanReport: Errors and warnings, each check's messages in schedule order.
     """
-    checker = _PlanChecker(design)
+    checker = _PlanChecker(process)
     checker.run(geometry)
     return PlanReport(tuple(checker.errors), tuple(checker.warnings), tuple(checker.unreached))
 
 
-def unreached_targets(design: Design, tolerance: Tuple[float, float] = GRASP_TOLERANCE) -> Tuple[UnreachedTarget, ...]:
+def unreached_targets(process: Process, tolerance: Tuple[float, float] = GRASP_TOLERANCE) -> Tuple[UnreachedTarget, ...]:
     """B15 alone: every target link that the target's own joints do not reach, in schedule order.
 
     A target may give both the joints a movement ends at and the world poses its links end at (a solved keyframe:
@@ -94,14 +94,14 @@ def unreached_targets(design: Design, tolerance: Tuple[float, float] = GRASP_TOL
     - ! It says the solution misses its target, not that it collides: that needs the scene (`mirrors`).
 
     Args:
-        design: The design; its robot files are read.
+        process: The process; its robot files are read.
         tolerance: Largest distance (metres) and angle (radians) that still count as reached.
 
     Returns:
         tuple[UnreachedTarget, ...]: Empty when every comparable target is reached.
     """
     found = []
-    for action, movement in design.movements():
+    for action, movement in process.movements():
         target = movement.target
         if target is None or not target.link_poses or not target.joints:
             continue
@@ -109,7 +109,7 @@ def unreached_targets(design: Design, tolerance: Tuple[float, float] = GRASP_TOL
         for link_id in target.link_poses:
             by_robot.setdefault(split_link_id(link_id)[0], []).append(link_id)
         for robot, link_ids in by_robot.items():
-            given, state, spec = target.joints.get(robot), movement.start.robots.get(robot), design.robots.get(robot)
+            given, state, spec = target.joints.get(robot), movement.start.robots.get(robot), process.robots.get(robot)
             # * Where the base is at the end: the target's, if the movement drives it there.
             base = None if state is None else target.bases.get(robot, None if robot in movement.base else state.base)
             if not given or state is None or base is None or spec is None:
@@ -131,7 +131,7 @@ def unreached_targets(design: Design, tolerance: Tuple[float, float] = GRASP_TOL
 
 
 def end_state(movement: Movement) -> State:
-    """The state a movement ends in, as far as the design says: the start with the target applied.
+    """The state a movement ends in, as far as the process says: the start with the target applied.
 
     The target's bases, joints, grips, tool `on`, `attached` and `built` replace the start's; the rest stays.
     ! The acting robot's joints are unknown (None) after an arm motion whose target gives none of its joints, and
@@ -167,16 +167,16 @@ def end_state(movement: Movement) -> State:
 
 
 class _PlanChecker:
-    """One run of the plan checks: the design and the messages found so far."""
+    """One run of the plan checks: the process and the messages found so far."""
 
-    def __init__(self, design: Design):
-        self.design = design
+    def __init__(self, process: Process):
+        self.process = process
         self.errors: List[str] = []
         self.warnings: List[str] = []
         self.unreached: List[UnreachedTarget] = []
         # Robot id -> {flange link name: tool id}.
-        self.tool_at = {robot_id: dict(robot.tools) for robot_id, robot in design.robots.items()}
-        self.steps: List[Tuple[Action, Movement]] = list(design.movements())
+        self.tool_at = {robot_id: dict(robot.tools) for robot_id, robot in process.robots.items()}
+        self.steps: List[Tuple[Action, Movement]] = list(process.movements())
 
     def error(self, check: int, where: str, text: str) -> None:
         """Note one error."""
@@ -221,19 +221,19 @@ class _PlanChecker:
 
     def check_structure(self, state: State, where: str, engaged: Set[Tuple[str, str]]) -> None:
         """B1–B4 in one state; collects the mates engaged in it for B5."""
-        design = self.design
+        process = self.process
         for bar in sorted(state.present):
             if bar.startswith(BAR_PREFIX) and bar not in state.built and bar not in state.attached \
                     and bar not in state.poses:
-                self.warn(1, where, f"{bar} is neither built nor attached and has no pose: it floats at its design "
+                self.warn(1, where, f"{bar} is neither built nor attached and has no pose: it floats at its process "
                                     f"pose")
         # * B2: every built bar has an engaged mate, and the built bars reach the ground through engaged mates.
         links: Dict[str, Set[str]] = {}
-        for mate in design.mates:
-            if mate_status(design, state, mate) != ENGAGED:
+        for mate in process.mates:
+            if mate_status(process, state, mate) != ENGAGED:
                 continue
             engaged.add(mate)
-            a, b = (bar_of(design, side) or side for side in mate)
+            a, b = (bar_of(process, side) or side for side in mate)
             links.setdefault(a, set()).add(b)
             links.setdefault(b, set()).add(a)
         reached = {node for node in links if node.startswith(GROUND_PREFIX)}
@@ -252,7 +252,7 @@ class _PlanChecker:
             robots = {split_link_id(holder.to)[0] for holder in holders}
             if bar not in state.built and len(robots) > 1:
                 self.error(3, where, f"{bar} is not built but held by several robots {sorted(robots)}")
-            part = {bar, *design.halves_of(bar)}
+            part = {bar, *process.halves_of(bar)}
             for robot in sorted(robots):
                 on = {tool_state.on for tool, tool_state in state.tools.items()
                       if tool_state is not None and tool in self.tool_at.get(robot, {}).values()}
@@ -261,12 +261,12 @@ class _PlanChecker:
 
     def check_unmated(self, engaged: Set[Tuple[str, str]]) -> None:
         """B5: mates never engaged in the schedule, and halves in no mate."""
-        for mate in sorted(self.design.mates - engaged):
+        for mate in sorted(self.process.mates - engaged):
             self.warn(5, "mates", f"{list(mate)} is never engaged in the schedule")
-        mated = {side for mate in self.design.mates for side in mate}
-        for half in sorted(body for body in self.design.bodies if body.startswith(HALF_PREFIX) and body not in mated):
-            self.warn(5, "mates", f"{half} (on {self.design.bodies[half].mount}) is in no mate: its partner is "
-                                  f"not in the design")
+        mated = {side for mate in self.process.mates for side in mate}
+        for half in sorted(body for body in self.process.bodies if body.startswith(HALF_PREFIX) and body not in mated):
+            self.warn(5, "mates", f"{half} (on {self.process.bodies[half].mount}) is in no mate: its partner is "
+                                  f"not in the process")
 
     # --- --- --- --- --- PROCEDURE (B6–B12) --- --- --- --- ---
 
@@ -316,7 +316,7 @@ class _PlanChecker:
             tool_state = state.tools.get(tool) if tool else None
             if tool_state is None or tool_state.on is None:
                 continue
-            held = bar_of(self.design, tool_state.on)
+            held = bar_of(self.process, tool_state.on)
             holds = held is not None and any(holder.to == arm for holder in state.attached.get(held, ()))
             if not holds and movement.path != "linear":
                 self.error(9, at, f"{tool} is on {tool_state.on}, which {arm} does not hold: only a linear retreat "
@@ -325,7 +325,7 @@ class _PlanChecker:
     def on_part(self, state: State, tool: str, bar: str) -> bool:
         """Whether a tool is on a bar or one of its halves."""
         tool_state = state.tools.get(tool)
-        return tool_state is not None and tool_state.on is not None and bar_of(self.design, tool_state.on) == bar
+        return tool_state is not None and tool_state.on is not None and bar_of(self.process, tool_state.on) == bar
 
     def check_changes(self, movement: Movement, at: str) -> None:
         """B10: `attached` and `built` change only as the operations allow."""
@@ -357,7 +357,7 @@ class _PlanChecker:
         """B11: a movement ends where the next one starts, across actions in schedule order.
 
         Joints, grips, tool `on`, `present`, `attached` and `built` are compared; bases only within one action,
-        because robots drive between actions (a movement that lists the robot in `base` ends at its target's base). Values the design leaves open (None) are not compared.
+        because robots drive between actions (a movement that lists the robot in `base` ends at its target's base). Values the process leaves open (None) are not compared.
         """
         if movement.target is None:
             return  # ? By definition: it ends where the next one starts.
@@ -401,8 +401,8 @@ class _PlanChecker:
     def check_holds(self) -> None:
         """B12: a hold is released only after every bar in its `supports_until` is built."""
         holds: Dict[Tuple[str, str], Action] = {}
-        for action_id in self.design.schedule:
-            action = self.design.actions[action_id]
+        for action_id in self.process.schedule:
+            action = self.process.actions[action_id]
             if action.type == "bar_holding":
                 holds[(action.robot, action.bar)] = action
             elif action.type == "bar_holding_release" and action.movements:
@@ -419,7 +419,7 @@ class _PlanChecker:
 
     def check_arms(self) -> None:
         """B13: `arms` name flange links that end an SRDF group of the acting robot."""
-        tips = {robot_id: set(srdf_group_tips(robot.srdf).values()) for robot_id, robot in self.design.robots.items()}
+        tips = {robot_id: set(srdf_group_tips(robot.srdf).values()) for robot_id, robot in self.process.robots.items()}
         for action, movement in self.steps:
             for arm in movement.arms:
                 robot, link = split_link_id(arm)
@@ -428,32 +428,32 @@ class _PlanChecker:
 
     def check_grasps(self) -> None:
         """B14: grasps agree with the geometry: the half's `pose_in_tcp` for a tool on it, forward kinematics otherwise."""
-        design = self.design
+        process = self.process
         seen: Set[tuple] = set()
         for _, movement in self.steps:
             state, where = movement.start, f"{movement.id} start"
             for bar, holders in sorted(state.attached.items()):
-                reference: Optional[Pose] = design.bodies[bar].pose if bar in state.built else None
+                reference: Optional[Pose] = process.bodies[bar].assembly_pose if bar in state.built else None
                 for holder in holders:
                     tool = self.holder_tool(holder)
                     tool_state = state.tools.get(tool) if tool else None
                     on = tool_state.on if tool_state is not None else None
                     key = (bar, holder.to, holder.grasp, on)
-                    if on is not None and on.startswith(HALF_PREFIX) and bar_of(design, on) == bar and key not in seen:
+                    if on is not None and on.startswith(HALF_PREFIX) and bar_of(process, on) == bar and key not in seen:
                         seen.add(key)
-                        in_tcp = design.bodies[on].pose_in_tcp
+                        in_tcp = process.bodies[on].pose_in_tcp
                         if in_tcp is None:
                             self.error(14, where, f"{tool} is on {on}, which has no pose_in_tcp: no tool goes on it")
                         else:
-                            tcp = design.tools[tool].tcp
-                            expected = compose(compose(tcp, in_tcp), invert(mount_offset(design, on)))
+                            tcp = process.tools[tool].tcp
+                            expected = compose(compose(tcp, in_tcp), invert(mount_offset(process, on)))
                             what = f"the grasp of {bar} on {holder.to} (tool on {on})"
                             self._compare(expected, holder.grasp, where, what)
                     robot, link = split_link_id(holder.to)
                     robot_state = state.robots.get(robot)
                     if robot_state is None or robot_state.base is None or robot_state.joints is None:
                         continue
-                    world = compose(link_pose(design.robots[robot].urdf, robot_state.base, robot_state.joints, link),
+                    world = compose(link_pose(process.robots[robot].urdf, robot_state.base, robot_state.joints, link),
                                     holder.grasp)
                     if reference is None:
                         reference = world
@@ -462,7 +462,7 @@ class _PlanChecker:
 
     def check_targets(self) -> None:
         """B15: a target's joints bring its links to their target poses."""
-        self.unreached = list(unreached_targets(self.design))
+        self.unreached = list(unreached_targets(self.process))
         for miss in self.unreached:
             self.error(15, miss.movement, f"the target's joints leave {miss.link} {miss.distance * 1000:.3g} mm and "
                        f"{np.degrees(miss.angle):.3g}\u00b0 from its target pose: the solution is stale (the geometry "

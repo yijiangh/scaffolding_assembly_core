@@ -1,4 +1,4 @@
-"""Tests for the legacy converter's refusals: data a design cannot carry stops the conversion, not dropped."""
+"""Tests for the legacy converter's refusals: data a process cannot carry stops the conversion, not dropped."""
 
 from types import SimpleNamespace
 
@@ -32,7 +32,7 @@ def test_supported_movement_passes():
     (dict(attachment_frame=Frame([0.0, 0.0, 0.01], [1, 0, 0], [0, 1, 0])), "off its flange"),
 ])
 def test_unsupported_movement_refused(change, message):
-    """Each kind of data a design has no place for raises, naming the movement."""
+    """Each kind of data a process has no place for raises, naming the movement."""
     with pytest.raises(ValueError, match=f"B1__J_M2.*{message}"):
         _refuse_unsupported(_movement(**change))
 

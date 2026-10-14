@@ -1,8 +1,8 @@
 """
-The file checks A3–A13 of format §11 on a `Design` in memory; A1 and A2 are the reader's, A14 the solutions'.
+The file checks A3–A13 of format §11 on a `Process` in memory; A1 and A2 are the reader's, A14 the solutions'.
 
 They know nothing about kinematics or the assembly procedure (that is `plan_check`), only URDF/SRDF names. Every
-problem is collected and raised in one `DesignError`, each line starting with "A<n>: <where>".
+problem is collected and raised in one `ProcessError`, each line starting with "A<n>: <where>".
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ from ..geometry import BoxShape, CylinderShape, Geometry, Pose
 from ..ids import ID_PATTERN
 from ..urdf import URDFReadError, is_relative_reference, mesh_references, movable_joints, urdf_joints, urdf_links
 from .types import (ACTION_TYPES, BAR_PREFIX, BODY_PREFIXES, CONTROLLERS, ENDS_ON, GROUND_PREFIX, HALF_PREFIX,
-                    OBSTACLE_PREFIX, PATHS, ROBOT_PREFIX, TOOL_PREFIX, Action, Design, DesignError, Holder, Movement, State)
+                    OBSTACLE_PREFIX, PATHS, ROBOT_PREFIX, TOOL_PREFIX, Action, Process, ProcessError, Holder, Movement, State)
 from .vocabulary import GRIP, TOOL_KINDS
 
 #: How far a quaternion's (or a line direction's) length may be from 1 (A7).
@@ -27,20 +27,20 @@ UNIT_TOLERANCE = 1e-6
 NOTE_TYPES = (str, int, float, bool)
 
 
-def validate(design: Design, *, check_robot_meshes: bool = True) -> None:
+def validate(process: Process, *, check_robot_meshes: bool = True) -> None:
     """Run the file checks A3–A13.
 
     Args:
-        design: The design, in memory or read from a folder.
+        process: The process, in memory or read from a folder.
         check_robot_meshes: Check that the URDFs' meshes exist by relative path (A4); `write` turns it off for its
             source URDFs, which may use `package://`.
 
     Raises:
-        DesignError: With every problem found, if there is any.
+        ProcessError: With every problem found, if there is any.
     """
-    problems = _Checker(design, check_robot_meshes).run()
+    problems = _Checker(process, check_robot_meshes).run()
     if problems:
-        raise DesignError(problems)
+        raise ProcessError(problems)
 
 
 class _RobotFiles:
@@ -72,23 +72,23 @@ class _RobotFiles:
 
 
 class _Checker:
-    """One validation run: the design, its parsed robot files and the problems found so far."""
+    """One validation run: the process, its parsed robot files and the problems found so far."""
 
-    def __init__(self, design: Design, check_robot_meshes: bool = True):
-        self.design = design
+    def __init__(self, process: Process, check_robot_meshes: bool = True):
+        self.process = process
         self.check_robot_meshes = check_robot_meshes
         self.problems: List[str] = []
         self.files: Dict[str, _RobotFiles] = {}
         # ? Cache by file pair: several robots may share the same files.
         by_path: Dict[Tuple[Path, Path], _RobotFiles] = {}
-        for robot_id, robot in design.robots.items():
+        for robot_id, robot in process.robots.items():
             key = (Path(robot.urdf).resolve(), Path(robot.srdf).resolve())
             if key not in by_path:
                 by_path[key] = _RobotFiles(robot.urdf, robot.srdf, self.problems, robot_id)
             self.files[robot_id] = by_path[key]
         # Tool id -> the robot it is mounted on (the first, if several).
         self.mounted: Dict[str, str] = {}
-        for robot_id, robot in design.robots.items():
+        for robot_id, robot in process.robots.items():
             for tool in robot.tools.values():
                 self.mounted.setdefault(tool, robot_id)
 
@@ -106,9 +106,9 @@ class _Checker:
         self.check_robots_and_tools()
         self.check_bodies()
         self.check_schedule()
-        for action_id in self.design.schedule:
-            if action_id in self.design.actions:
-                self.check_action(self.design.actions[action_id])
+        for action_id in self.process.schedule:
+            if action_id in self.process.actions:
+                self.check_action(self.process.actions[action_id])
         return self.problems
 
     # --- --- --- --- --- REFERENCES --- --- --- --- ---
@@ -124,7 +124,7 @@ class _Checker:
             self.add(4, where, f"{value!r} is not a link id 'robots/<robot>/<link>'")
             return None
         robot, link = f"{parts[0]}/{parts[1]}", parts[2]
-        if robot not in self.design.robots:
+        if robot not in self.process.robots:
             self.add(4, where, f"link {value!r}: unknown robot {robot!r}")
             return None
         links = self.files[robot].links
@@ -137,14 +137,14 @@ class _Checker:
                      check: int = 4) -> None:
         """Check body ids exist (A4) and have one of `prefixes` (reported under `check`)."""
         for value in values:
-            if value not in self.design.bodies:
+            if value not in self.process.bodies:
                 self.add(4, where, f"unknown body {value!r}")
             elif not value.startswith(prefixes):
                 self.add(check, where, f"{value!r} is not one of {', '.join(p.rstrip('/') for p in prefixes)}")
 
     def tool_known(self, tool: str, where: str) -> bool:
         """Check a tool id exists (A4)."""
-        if tool not in self.design.tools:
+        if tool not in self.process.tools:
             self.add(4, where, f"unknown tool {tool!r}")
             return False
         return True
@@ -175,13 +175,13 @@ class _Checker:
         if "/" in label:
             self.add(3, where, f"label {label!r} contains '/'")
 
-    # --- --- --- --- --- DESIGN-LEVEL --- --- --- --- ---
+    # --- --- --- --- --- PROCESS-LEVEL --- --- --- --- ---
 
     def check_ids(self) -> None:
         """Ids match the pattern, keys match the objects, prefixes are known, nothing repeats, labels lack "/" (A3)."""
-        design = self.design
-        groups = (("robot", design.robots, (ROBOT_PREFIX,)), ("tool", design.tools, (TOOL_PREFIX,)),
-                  ("body", design.bodies, BODY_PREFIXES))
+        process = self.process
+        groups = (("robot", process.robots, (ROBOT_PREFIX,)), ("tool", process.tools, (TOOL_PREFIX,)),
+                  ("body", process.bodies, BODY_PREFIXES))
         for kind, objects, prefixes in groups:
             for key, value in objects.items():
                 if not ID_PATTERN.fullmatch(key):
@@ -190,18 +190,18 @@ class _Checker:
                     self.add(3, key, f"{kind} id {key!r} does not start with {' or '.join(prefixes)}")
                 if value.id != key:
                     self.add(3, key, f"{kind} is keyed {key!r} but has id {value.id!r}")
-        for robot in design.robots:
+        for robot in process.robots:
             if robot.count("/") != 1:
                 self.add(3, robot, f"robot id {robot!r} is not 'robots/<name>'")
-        for body_id, body in design.bodies.items():
+        for body_id, body in process.bodies.items():
             self.check_label(body.label, body_id)
-        for key, action in design.actions.items():
+        for key, action in process.actions.items():
             if not ID_PATTERN.fullmatch(key) or "/" in key:
                 self.add(3, key, f"invalid action id {key!r}")
             self.check_label(action.label, f"action {key}")
             for movement in action.movements:
                 self.check_label(movement.label, f"movement {movement.id}")
-        counts = Counter(movement.id for action in design.actions.values() for movement in action.movements)
+        counts = Counter(movement.id for action in process.actions.values() for movement in action.movements)
         for movement_id, count in counts.items():
             if not ID_PATTERN.fullmatch(movement_id) or "/" in movement_id:
                 self.add(3, movement_id, f"invalid movement id {movement_id!r}")
@@ -210,9 +210,9 @@ class _Checker:
 
     def check_robots_and_tools(self) -> None:
         """Robot files and links, tool mounts and kinds, mount contacts (A4, A6, A7, A10)."""
-        design = self.design
-        mounts: Dict[str, List[str]] = {tool: [] for tool in design.tools}
-        for robot_id, robot in design.robots.items():
+        process = self.process
+        mounts: Dict[str, List[str]] = {tool: [] for tool in process.tools}
+        for robot_id, robot in process.robots.items():
             files = self.files[robot_id]
             for link, tool in robot.tools.items():
                 if files.links is not None and link not in files.links:
@@ -229,7 +229,7 @@ class _Checker:
                     self.add(4, robot_id, f"URDF mesh {reference!r} is not a path relative to the URDF")
                 elif not (folder / reference).is_file():
                     self.add(4, robot_id, f"URDF mesh {reference!r} does not exist")
-        for tool_id, tool in design.tools.items():
+        for tool_id, tool in process.tools.items():
             if len(mounts[tool_id]) != 1:
                 places = ", ".join(mounts[tool_id]) or "no robot"
                 self.add(6, tool_id, f"mounted on {len(mounts[tool_id])} robots ({places}), must be exactly one")
@@ -247,9 +247,9 @@ class _Checker:
 
     def check_bodies(self) -> None:
         """Body poses and markers, mounts, tool poses on halves and mates (A4, A7, A12)."""
-        design = self.design
-        for body_id, body in design.bodies.items():
-            self.check_pose(body.pose, f"{body_id} pose")
+        process = self.process
+        for body_id, body in process.bodies.items():
+            self.check_pose(body.assembly_pose, f"{body_id} assembly_pose")
             self.check_geometry(body.geometry, body_id)
             for name, point in body.markers.items():
                 if len(point) != 3:
@@ -257,8 +257,8 @@ class _Checker:
             if body_id.startswith(HALF_PREFIX):
                 if body.mount is None:
                     self.add(12, body_id, "a connector half needs a mount")
-                elif body.mount not in design.bodies or not body.mount.startswith(BAR_PREFIX):
-                    self.add(12, body_id, f"mount {body.mount!r} is not a bar of the design")
+                elif body.mount not in process.bodies or not body.mount.startswith(BAR_PREFIX):
+                    self.add(12, body_id, f"mount {body.mount!r} is not a bar of the process")
             elif body.mount is not None:
                 self.add(12, body_id, "only connector halves (joints/) have a mount")
             if body.pose_in_tcp is not None:
@@ -266,7 +266,7 @@ class _Checker:
                 if not body_id.startswith(HALF_PREFIX):
                     self.add(12, body_id, "only connector halves (joints/) have a pose_in_tcp")
         in_mates: Counter = Counter()
-        for mate in sorted(design.mates):
+        for mate in sorted(process.mates):
             self.bodies_known(mate, "mates")
             kinds = sorted(side.split("/", 1)[0] + "/" for side in mate)
             if kinds not in ([HALF_PREFIX, HALF_PREFIX], [GROUND_PREFIX, HALF_PREFIX]):
@@ -278,21 +278,21 @@ class _Checker:
 
     def check_schedule(self) -> None:
         """`schedule` and the action files match one to one (A5)."""
-        design = self.design
-        for action_id, count in Counter(design.schedule).items():
+        process = self.process
+        for action_id, count in Counter(process.schedule).items():
             if count > 1:
                 self.add(5, "schedule", f"action {action_id!r} is scheduled {count} times")
-            if action_id not in design.actions:
+            if action_id not in process.actions:
                 self.add(5, "schedule", f"action {action_id!r} has no action file")
-        for action_id in design.actions:
-            if action_id not in design.schedule:
+        for action_id in process.actions:
+            if action_id not in process.schedule:
                 self.add(5, f"actions/{action_id}.json", "action is not in the schedule")
 
     # --- --- --- --- --- ACTIONS --- --- --- --- ---
 
     def check_action(self, action: Action) -> None:
         """One action and its movements (A4, A7–A13)."""
-        design = self.design
+        process = self.process
         where = f"action {action.id}"
         if action.type not in ACTION_TYPES:
             self.add(2, where, f"unknown action type {action.type!r}")
@@ -300,7 +300,7 @@ class _Checker:
             # * No robot acts: the bar is placed by hand.
             if action.robot:
                 self.add(4, where, f"a bar_placing action has no robot, not {action.robot!r}")
-        elif action.robot not in design.robots:
+        elif action.robot not in process.robots:
             self.add(4, where, f"unknown robot {action.robot!r}")
         self.bodies_known((action.bar,), f"{where} bar", (BAR_PREFIX,))
         self.bodies_known(action.ground, f"{where} ground", (GROUND_PREFIX,))
@@ -346,20 +346,20 @@ class _Checker:
                 self.add(11, f"{at} line {flange}", f"distance {line.distance!r} is not positive")
         for tool, direction in movement.drives.items():
             if self.tool_known(tool, f"{at} drives"):
-                directions = TOOL_KINDS.get(self.design.tools[tool].kind, ())
+                directions = TOOL_KINDS.get(self.process.tools[tool].kind, ())
                 if direction not in directions:
-                    self.add(10, f"{at} drives", f"{tool} ({self.design.tools[tool].kind}) drives "
+                    self.add(10, f"{at} drives", f"{tool} ({self.process.tools[tool].kind}) drives "
                                                  f"{list(directions) or 'nothing'}, not {direction!r}")
 
     def check_state(self, state: State, where: str) -> None:
         """One State is complete and consistent (A4, A7–A10)."""
-        design = self.design
+        process = self.process
         # * A8: every robot listed, known joint names, and every movable joint given.
-        for robot in design.robots:
+        for robot in process.robots:
             if robot not in state.robots:
                 self.add(8, where, f"robot {robot} is not listed")
         for robot, robot_state in state.robots.items():
-            if robot not in design.robots:
+            if robot not in process.robots:
                 self.add(4, where, f"unknown robot {robot!r}")
                 continue
             if robot_state is None:
@@ -386,7 +386,7 @@ class _Checker:
             self.check_pose(pose, f"{where} pose of {bar}")
         self.check_holders(state.attached, where)
         # * A10: every mounted tool listed, its grip from the vocabulary, `on` an existing body.
-        for robot in design.robots.values():
+        for robot in process.robots.values():
             for tool in robot.tools.values():
                 if tool not in state.tools:
                     self.add(10, where, f"tool {tool} is not listed")
@@ -395,14 +395,14 @@ class _Checker:
                 continue
             if tool_state.grip is not None and tool_state.grip not in GRIP:
                 self.add(10, f"{where} {tool}", f"grip must be one of {GRIP}, not {tool_state.grip!r}")
-            if tool_state.on is not None and tool_state.on not in design.bodies:
+            if tool_state.on is not None and tool_state.on not in process.bodies:
                 self.add(10, f"{where} {tool}", f"on {tool_state.on!r}, which is not a body")
 
     def check_bars(self, bars: Iterable[str], present: Iterable[str], where: str) -> None:
         """Bars named in a state exist and are present (A4, A9)."""
         present = set(present)
         for bar in bars:
-            if bar not in self.design.bodies:
+            if bar not in self.process.bodies:
                 self.add(4, where, f"unknown body {bar!r}")
             elif not bar.startswith(BAR_PREFIX):
                 self.add(9, where, f"{bar!r} is not a bar")
@@ -420,9 +420,9 @@ class _Checker:
 
     def check_target(self, movement: Movement, where: str) -> None:
         """A target names known robots, joints, links, tools, grips, bodies and bars (A4, A7–A10)."""
-        design, target = self.design, movement.target
+        process, target = self.process, movement.target
         for robot, part in target.robots.items():
-            if robot not in design.robots:
+            if robot not in process.robots:
                 self.add(4, where, f"unknown robot {robot!r}")
                 continue
             self.check_joint_names(robot, part.joints, f"{where} joints")
@@ -439,7 +439,7 @@ class _Checker:
             if self.tool_known(tool, f"{where} tools") and grip not in GRIP:
                 self.add(10, f"{where} {tool}", f"grip must be one of {GRIP}, not {grip!r}")
         for tool, body in target.on.items():
-            if self.tool_known(tool, f"{where} tools") and body is not None and body not in design.bodies:
+            if self.tool_known(tool, f"{where} tools") and body is not None and body not in process.bodies:
                 self.add(10, f"{where} {tool}", f"on {body!r}, which is not a body")
         if target.attached is not None:
             self.bodies_known(target.attached, f"{where} attached", (BAR_PREFIX,), check=9)

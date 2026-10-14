@@ -3,8 +3,8 @@
 The shared core of the bar assembly tools, used by the Rhino plugin (`bar_joint_rhino_design_workflow`), the planners
 (`husky_assembly_tamp`) and the monitor (`husky-assembly-teleop`). It holds:
 
-- `design/`: the design format, schema 2.1 (`doc/design_format.md`): `read`, `write`, `validate` (file checks A1–A14),
-  `plan_check.check_plan` (plan checks B1–B15), `relations`, `scenes` (`Design.scene_at`), `solutions`;
+- `process/`: the process format, schema 2.1 (`doc/process_format.md`): `read`, `write`, `validate` (file checks A1–A14),
+  `plan_check.check_plan` (plan checks B1–B15), `relations`, `scenes` (`Process.scene_at`), `solutions`;
 - `geometry`, `ids`, `urdf` (URDFs read with yourdfpy: names, joints, each link's shapes), `kinematics`
   (`link_pose`, `link_poses`), `robot`, `scene` (`scene_parts`: what a viewer draws);
 - `mirrors/`: a scene in PyBullet or compas_fab, for planners, and its compas_fab cell without PyBullet, for viewers
@@ -43,7 +43,7 @@ python -m pytest -m ""      # also slow: Python 3.9 environments built with uv, 
 
 Copied from `yijiangh/husky-assembly-teleop`, branch `jg/viser-cleanup`, commit
 `7bea80e404e0967022bb0462c1c7419b43440018` (2026-10-09): the package `bar_assembly_core/`, the core tests from
-`test/` that do not need the monitor, and `doc/design_format.md`. Changes for standalone use:
+`test/` that do not need the monitor, and `doc/process_format.md`. Changes for standalone use:
 
 - `pyproject.toml` replaces `bar_assembly_core/requirements.txt`;
 - tests: `tests/conftest.py` skips modules whose extras are missing; the legacy conversion test reads its robot files

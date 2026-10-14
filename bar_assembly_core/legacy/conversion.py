@@ -1,7 +1,7 @@
 """
-Convert an export in the old compas_fab format into a schema 2 design, written next to it in `<export>_design`.
+Convert an export in the old compas_fab format into a schema 2 process, written next to it in `<export>_process`.
 
-The robots are the calibrated URDFs and SRDFs from the data directory, copied into the design with their meshes.
+The robots are the calibrated URDFs and SRDFs from the data directory, copied into the process with their meshes.
 ! Slow (~15 s, the cells are ~350 MB each): call it off the main thread.
 """
 
@@ -11,18 +11,18 @@ import json
 from pathlib import Path
 from typing import Callable, Optional
 
-from ..design.types import Design
-from ..design.version import SCHEMA
-from ..design.write import write
+from ..process.types import Process
+from ..process.version import SCHEMA
+from ..process.write import write
 from .export import CONVERTER, from_export, load_export
 from .timing import Stopwatch
 
 #: A folder holding this is an export in the old compas_fab format.
 OLD_EXPORT_FILE = "ActionSchedule.json"
-#: A folder holding this is a design (its schema is in `writer.schema`).
-DESIGN_FILE = "design.json"
+#: A folder holding this is a process (its schema is in `writer.schema`).
+PROCESS_FILE = "process.json"
 #: Added to an export's folder name for its converted copy.
-CONVERTED_SUFFIX = "_design"
+CONVERTED_SUFFIX = "_process"
 
 #: Robot name in the schedule -> (URDF, SRDF) under the data directory, as the Rhino workflow's
 #: `core/config.py` uses them. ! The calibrated files, not the monitor's `_StockUrFrames` variants.
@@ -40,13 +40,13 @@ SERIALS = {"Cindy": "0806", "Alice": "0804", "Belle": "0805"}
 
 
 def is_old_export(folder: Path) -> bool:
-    """Whether a folder is an old compas_fab export and not a schema 1 design."""
+    """Whether a folder is an old compas_fab export and not a schema 1 process."""
     folder = Path(folder)
-    return (folder / OLD_EXPORT_FILE).is_file() and not (folder / DESIGN_FILE).is_file()
+    return (folder / OLD_EXPORT_FILE).is_file() and not (folder / PROCESS_FILE).is_file()
 
 
 def converted_folder(export: Path) -> Path:
-    """The sibling folder `<export>_design` an export is converted into."""
+    """The sibling folder `<export>_process` an export is converted into."""
     export = Path(export).expanduser().resolve()
     return export.with_name(export.name + CONVERTED_SUFFIX)
 
@@ -57,17 +57,17 @@ def is_up_to_date(export: Path) -> bool:
     Args:
         export: The export folder.
     """
-    design_file = converted_folder(export) / DESIGN_FILE
-    if not design_file.is_file():
+    process_file = converted_folder(export) / PROCESS_FILE
+    if not process_file.is_file():
         return False
     try:
-        manifest = json.loads(design_file.read_text(encoding="utf-8"))
+        manifest = json.loads(process_file.read_text(encoding="utf-8"))
         schema, command = manifest["writer"]["schema"], manifest["producer"]["command"]
     except (ValueError, KeyError, TypeError):
         return False
     if schema != SCHEMA or command != CONVERTER:
         return False
-    written = design_file.stat().st_mtime
+    written = process_file.stat().st_mtime
     return all(path.stat().st_mtime <= written for path in Path(export).rglob("*.json"))
 
 
@@ -84,8 +84,8 @@ def robot_files(data_directory: Path) -> dict:
 
 
 def convert_in_memory(export: Path, data_directory: Path, report: Callable[[str], None] = print,
-                      watch: Optional[Stopwatch] = None) -> Design:
-    """Load an export and convert it into an in-memory design (`folder` None), writing nothing.
+                      watch: Optional[Stopwatch] = None) -> Process:
+    """Load an export and convert it into an in-memory process (`folder` None), writing nothing.
 
     Args:
         export: The export folder, holding ActionSchedule.json.
@@ -95,28 +95,28 @@ def convert_in_memory(export: Path, data_directory: Path, report: Callable[[str]
     """
     watch = watch if watch is not None else Stopwatch()
     loaded = load_export(export, report, watch)
-    design = from_export(loaded, robot_files(data_directory), serials=SERIALS, report=report)
+    process = from_export(loaded, robot_files(data_directory), serials=SERIALS, report=report)
     watch.lap("convert")
-    return design
+    return process
 
 
 def convert_export(export: Path, destination: Path, data_directory: Path,
                    report: Callable[[str], None] = print, watch: Optional[Stopwatch] = None) -> Path:
-    """Convert an export into a schema 2 design folder, replacing what is there.
+    """Convert an export into a schema 2 process folder, replacing what is there.
 
     Args:
         export: The export folder, holding ActionSchedule.json.
-        destination: The design folder to write.
+        destination: The process folder to write.
         data_directory: The monitor's data directory, holding `husky_urdf/`.
         report: Told what is being done.
         watch: Gets a lap per step, if given.
 
     Returns:
-        Path: The design folder.
+        Path: The process folder.
     """
     watch = watch if watch is not None else Stopwatch()
-    design = convert_in_memory(export, data_directory, report, watch)
+    process = convert_in_memory(export, data_directory, report, watch)
     report(f"writing {destination}")
-    write(design, destination, overwrite=True, package_dirs=[data_directory / "husky_urdf"])
+    write(process, destination, overwrite=True, package_dirs=[data_directory / "husky_urdf"])
     watch.lap("write (copy robots, read back, validate)")
     return Path(destination)

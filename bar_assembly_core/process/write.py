@@ -1,8 +1,8 @@
 """
-Write a `Design` into a design folder (doc/design_format.md), then read it back; and the content hash of a file.
+Write a `Process` into a process folder (doc/process_format.md), then read it back; and the content hash of a file.
 
 The writer is deterministic: ids sorted, floats rounded to FLOAT_DIGITS, each mesh in `meshes/<owner>.<content hash>.obj`, so
-equal designs give equal files and `design_hashes` can tell the hashes without writing. Keys at their default, and
+equal processes give equal files and `process_hashes` can tell the hashes without writing. Keys at their default, and
 `visual` equal to `collision`, are left out.
 """
 
@@ -20,8 +20,8 @@ import numpy as np
 from ..geometry import BoxShape, CylinderShape, Geometry, Pose, Shape, TriMesh
 from ..urdf import copy_robot, robot_files_hash
 from .meshes import write_mesh
-from .read import ACTION_FORMAT, DESIGN_FORMAT, read
-from .types import Action, Design, Holder, Movement, Producer, RobotSpec, State, Target, Writer
+from .read import ACTION_FORMAT, PROCESS_FORMAT, read
+from .types import Action, Process, Holder, Movement, Producer, RobotSpec, State, Target, Writer
 from .validate import validate
 from .version import writer_info
 
@@ -29,54 +29,54 @@ from .version import writer_info
 FLOAT_DIGITS = 12
 
 
-def write(design: Design, folder: Path, *, overwrite: bool = False, package_dirs: Sequence[Path] = ()) -> Design:
-    """Write a design into a folder; `source/`, `solutions/` and `runs/` in it are left as they are.
+def write(process: Process, folder: Path, *, overwrite: bool = False, package_dirs: Sequence[Path] = ()) -> Process:
+    """Write a process into a folder; `source/`, `solutions/` and `runs/` in it are left as they are.
 
     Args:
-        design: The design; validated first (A3–A13; the robot meshes only on the read-back).
-        folder: The design folder. Created if missing.
+        process: The process; validated first (A3–A13; the robot meshes only on the read-back).
+        folder: The process folder. Created if missing.
         overwrite: Write into a non-empty folder, deleting its old action files and meshes first.
         package_dirs: Where to find ROS packages named by `package://` mesh references in robot URDFs.
 
     Returns:
-        Design: The design as read back from the folder.
+        Process: The process as read back from the folder.
 
     Raises:
-        DesignError: If the design breaks a format rule.
+        ProcessError: If the process breaks a format rule.
         FileExistsError: If the folder is not empty and `overwrite` is False.
         FileNotFoundError: If a mesh referenced by a robot URDF is missing.
     """
     # ? Robot meshes are checked on the read-back: source URDFs may use `package://`; only the copies must be relative.
-    validate(design, check_robot_meshes=False)
+    validate(process, check_robot_meshes=False)
     folder = Path(folder).resolve()
     if folder.exists() and any(folder.iterdir()):
         if not overwrite:
-            raise FileExistsError(f"{folder} is not empty; pass overwrite=True to replace the design in it")
+            raise FileExistsError(f"{folder} is not empty; pass overwrite=True to replace the process in it")
         for stale in (folder / "actions").glob("*.json"):
             stale.unlink()
         shutil.rmtree(folder / "meshes", ignore_errors=True)
     folder.mkdir(parents=True, exist_ok=True)
 
     writer = _writer(writer_info())
-    robots = {robot_id: _robot(robot, folder, package_dirs) for robot_id, robot in sorted(design.robots.items())}
-    _write_json(folder / "design.json", _manifest(design, writer, robots, _MeshFiles(folder)))
+    robots = {robot_id: _robot(robot, folder, package_dirs) for robot_id, robot in sorted(process.robots.items())}
+    _write_json(folder / "process.json", _manifest(process, writer, robots, _MeshFiles(folder)))
     (folder / "actions").mkdir(exist_ok=True)
-    for action_id in design.schedule:
-        _write_json(folder / "actions" / f"{action_id}.json", _action(design.actions[action_id], writer))
+    for action_id in process.schedule:
+        _write_json(folder / "actions" / f"{action_id}.json", _action(process.actions[action_id], writer))
     return read(folder)
 
 
-def _manifest(design: Design, writer: Dict[str, Any], robots: Dict[str, Any], meshes: "_MeshFiles") -> Dict[str, Any]:
-    """The content of `design.json`, given the robot entries and where meshes go."""
+def _manifest(process: Process, writer: Dict[str, Any], robots: Dict[str, Any], meshes: "_MeshFiles") -> Dict[str, Any]:
+    """The content of `process.json`, given the robot entries and where meshes go."""
     return {
-        "format": DESIGN_FORMAT,
+        "format": PROCESS_FORMAT,
         "writer": writer,
-        **({"producer": _producer(design.producer)} if design.producer is not None else {}),
+        **({"producer": _producer(process.producer)} if process.producer is not None else {}),
         "robots": robots,
         "tools": {tool_id: _drop_empty({**_geometry(tool.geometry, meshes, tool_id.rsplit("/", 1)[1]),
                                         "tcp": _pose(tool.tcp), "kind": tool.kind})
-                  for tool_id, tool in sorted(design.tools.items())},
-        "bodies": {body_id: _drop_empty({"pose": _pose(body.pose),
+                  for tool_id, tool in sorted(process.tools.items())},
+        "bodies": {body_id: _drop_empty({"assembly_pose": _pose(body.assembly_pose),
                                          **_geometry(body.geometry, meshes, body.part or body_id.rsplit("/", 1)[1]),
                                          "label": body.label, "part": body.part,
                                          "markers": {name: [_float(v) for v in point]
@@ -84,30 +84,30 @@ def _manifest(design: Design, writer: Dict[str, Any], robots: Dict[str, Any], me
                                          "mount": body.mount,
                                          "pose_in_tcp": None if body.pose_in_tcp is None
                                          else _pose(body.pose_in_tcp)})
-                   for body_id, body in sorted(design.bodies.items())},
-        **_drop_empty({"mates": [list(pair) for pair in sorted(design.mates)]}),
-        "schedule": list(design.schedule),
+                   for body_id, body in sorted(process.bodies.items())},
+        **_drop_empty({"mates": [list(pair) for pair in sorted(process.mates)]}),
+        "schedule": list(process.schedule),
     }
 
 
-def design_hashes(design: Design, package_dirs: Sequence[Path] = ()) -> Tuple[str, Dict[str, str]]:
-    """The content hashes `write` would give, without writing: of `design.json` and of every action file.
+def process_hashes(process: Process, package_dirs: Sequence[Path] = ()) -> Tuple[str, Dict[str, str]]:
+    """The content hashes `write` would give, without writing: of `process.json` and of every action file.
 
-    Compare them with a solution's `solved_against` to tell whether it is stale, e.g. while the design is open in Rhino.
+    Compare them with a solution's `solved_against` to tell whether it is stale, e.g. while the process is open in Rhino.
 
     Args:
-        design: The design, in memory or read from a folder.
+        process: The process, in memory or read from a folder.
         package_dirs: As for `write`: where to find packages named by `package://` in the robot URDFs.
 
     Returns:
-        tuple[str, dict[str, str]]: The hash of `design.json`, and action id -> the hash of its file.
+        tuple[str, dict[str, str]]: The hash of `process.json`, and action id -> the hash of its file.
     """
     robots = {robot_id: _robot_entry(robot, f"robots/{robot.name}/robot.urdf", f"robots/{robot.name}/robot.srdf",
                                      robot_files_hash(robot.urdf, robot.srdf, package_dirs))
-              for robot_id, robot in sorted(design.robots.items())}
-    manifest = _manifest(design, {}, robots, _MeshFiles(None))
-    return _value_hash(manifest), {action_id: _value_hash(_action(design.actions[action_id], {}))
-                                   for action_id in design.schedule}
+              for robot_id, robot in sorted(process.robots.items())}
+    manifest = _manifest(process, {}, robots, _MeshFiles(None))
+    return _value_hash(manifest), {action_id: _value_hash(_action(process.actions[action_id], {}))
+                                   for action_id in process.schedule}
 
 
 # --- --- --- --- --- ROBOTS AND MESHES --- --- --- --- ---
@@ -134,13 +134,13 @@ def _robot(robot: RobotSpec, folder: Path, package_dirs: Sequence[Path]) -> Dict
 
 
 def _robot_entry(robot: RobotSpec, urdf: str, srdf: str, files_hash: str) -> Dict[str, Any]:
-    """A robot entry with its file paths in the design and the hash of those files."""
+    """A robot entry with its file paths in the process and the hash of those files."""
     return _drop_empty({"urdf": urdf, "srdf": srdf, "files_hash": files_hash, "serial": robot.serial,
                         "tools": dict(sorted(robot.tools.items())), "ground_links": list(robot.ground_links)})
 
 
 def _relative(path: Path, folder: Path) -> str:
-    """A path inside the design folder, relative to it, with `/`."""
+    """A path inside the process folder, relative to it, with `/`."""
     return Path(path).resolve().relative_to(folder).as_posix()
 
 
@@ -148,11 +148,11 @@ class _MeshFiles:
     """The mesh files of one write, written on first use: `meshes/<owner>.<hash>.obj`.
 
     `<owner>` says what the mesh is of (a half's part, else the last segment of the first id using it, in sorted
-    order); `<hash>` is of the content, so `design.json` covers its meshes and equal meshes share one file.
+    order); `<hash>` is of the content, so `process.json` covers its meshes and equal meshes share one file.
     """
 
     def __init__(self, folder: Optional[Path]):
-        """Write into `folder`; None: only name the files (`design_hashes`)."""
+        """Write into `folder`; None: only name the files (`process_hashes`)."""
         self.folder = folder
         self.by_object: Dict[int, str] = {}
         self.by_content: Dict[str, str] = {}
@@ -161,7 +161,7 @@ class _MeshFiles:
         self.kept: List[TriMesh] = []
 
     def reference(self, mesh: TriMesh, owner: str) -> str:
-        """The file of a mesh, relative to the design folder; written on first use, named after `owner` then."""
+        """The file of a mesh, relative to the process folder; written on first use, named after `owner` then."""
         if id(mesh) not in self.by_object:
             content = sha1(np.ascontiguousarray(mesh.vertices, dtype=np.float64).tobytes()
                            + b"|" + np.ascontiguousarray(mesh.faces, dtype=np.int64).tobytes()).hexdigest()
@@ -318,11 +318,11 @@ def _write_json(path: Path, value: Any) -> None:
 def content_hash(path: Path) -> str:
     """The SHA-256 of a JSON file's content, without `writer` and `producer`.
 
-    Keys sorted and floats rounded to FLOAT_DIGITS, so re-exporting an unchanged design gives the same hash from any
-    library commit. Files outside the design (solutions, runs, planner caches) record it to notice a changed design.
+    Keys sorted and floats rounded to FLOAT_DIGITS, so re-exporting an unchanged process gives the same hash from any
+    library commit. Files outside the process (solutions, runs, planner caches) record it to notice a changed process.
 
     Args:
-        path: `design.json`, an action file, or any other JSON file.
+        path: `process.json`, an action file, or any other JSON file.
 
     Returns:
         str: 64 hex digits.

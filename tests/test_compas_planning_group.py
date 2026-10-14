@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from compas_fab.robots import RobotCell, RobotSemantics
-from design_fixtures import write_robot_files
+from process_fixtures import write_robot_files
 
 from bar_assembly_core.mirrors.compas import load_model, planning_group
 
