@@ -6,10 +6,10 @@ from pathlib import Path
 import pytest
 from process_fixtures import build_process
 
-from bar_assembly_core.process import Process, Holder, State
-from bar_assembly_core.process.relations import (ENGAGED, NOT_RELEVANT, OPEN, PENDING, allowed_contacts, is_present,
+from scaffolding_assembly_core.process import Process, Holder, State
+from scaffolding_assembly_core.process.relations import (ENGAGED, NOT_RELEVANT, OPEN, PENDING, allowed_contacts, is_present,
                                                 mate_status, mount_offset, placement)
-from bar_assembly_core.geometry import Pose, compose
+from scaffolding_assembly_core.geometry import Pose, compose
 
 G1_MATE, J1_MATE = ("ground/WG0", "joints/G1_ground"), ("joints/J1_female", "joints/J1_male")
 

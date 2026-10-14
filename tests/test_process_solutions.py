@@ -7,10 +7,10 @@ from pathlib import Path
 import pytest
 from process_fixtures import build_process, joints, with_movement
 
-from bar_assembly_core.process import Process, ProcessError, Target, write
-from bar_assembly_core.process.solutions import (MovementResult, Planner, Solution, Trajectory, is_stale,
+from scaffolding_assembly_core.process import Process, ProcessError, Target, write
+from scaffolding_assembly_core.process.solutions import (MovementResult, Planner, Solution, Trajectory, is_stale,
                                                 read_solutions, solution_warnings, solved_against, write_solution)
-from bar_assembly_core.geometry import Pose
+from scaffolding_assembly_core.geometry import Pose
 
 PLANNER = Planner("tamp", repo="husky_assembly_tamp", commit="abc", ik_backend="ssik", artifacts="cindy_v2",
                   settings={"seed": 3, "timeout_s": 10.0})

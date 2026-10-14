@@ -208,7 +208,7 @@ def from_export(export: Export, robot_files: Mapping[str, Tuple[Path, Path]],
     writer = writer_info()
     return Process(folder=None, writer=writer, robots=converter.robots, tools=converter.tools,
                   bodies=converter.bodies, schedule=tuple(process_actions), actions=process_actions, mates=mates,
-                  producer=Producer("bar_assembly_core", writer.commit, writer.dirty, CONVERTER))
+                  producer=Producer("scaffolding_assembly_core", writer.commit, writer.dirty, CONVERTER))
 
 
 # --- --- --- --- --- CONVERSION --- --- --- --- ---

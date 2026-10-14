@@ -9,10 +9,10 @@ import numpy as np
 import pytest
 from process_fixtures import TETRA, build_process, write_robot_files
 
-from bar_assembly_core.process import BodySpec, Process, ProcessError, content_hash, process_hashes, read, write
-from bar_assembly_core.geometry import Geometry, Pose, TriMesh
-from bar_assembly_core.process.meshes import read_mesh, write_mesh
-from bar_assembly_core.urdf import (copy_robot, mesh_references, movable_joints, resolved_urdf_text, srdf_group_tips,
+from scaffolding_assembly_core.process import BodySpec, Process, ProcessError, content_hash, process_hashes, read, write
+from scaffolding_assembly_core.geometry import Geometry, Pose, TriMesh
+from scaffolding_assembly_core.process.meshes import read_mesh, write_mesh
+from scaffolding_assembly_core.urdf import (copy_robot, mesh_references, movable_joints, resolved_urdf_text, srdf_group_tips,
                                     urdf_joints, urdf_links)
 
 
@@ -118,7 +118,7 @@ def test_writer_block_in_every_file(tmp_path: Path):
     assert len(files) == 6
     for path in files:
         writer = json.loads(path.read_text())["writer"]
-        assert writer["schema"] == 2.1 and writer["library"] == "bar_assembly_core"
+        assert writer["schema"] == 2.1 and writer["library"] == "scaffolding_assembly_core"
         assert isinstance(writer["commit"], str) and isinstance(writer["dirty"], bool)
 
 

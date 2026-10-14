@@ -11,12 +11,12 @@ import pytest
 from process_fixtures import TETRA, build_process, joints, write_robot_files
 from scipy.spatial.transform import Rotation
 
-from bar_assembly_core.process.meshes import write_mesh
-from bar_assembly_core.geometry import BoxShape, CylinderShape, Pose, TriMesh
-from bar_assembly_core.kinematics import link_pose, link_poses
-from bar_assembly_core.robot import robot_model
-from bar_assembly_core.scene import robot_parts, scene_parts
-from bar_assembly_core.urdf import (URDFReadError, link_geometry, load_urdf, mesh_references, movable_joints,
+from scaffolding_assembly_core.process.meshes import write_mesh
+from scaffolding_assembly_core.geometry import BoxShape, CylinderShape, Pose, TriMesh
+from scaffolding_assembly_core.kinematics import link_pose, link_poses
+from scaffolding_assembly_core.robot import robot_model
+from scaffolding_assembly_core.scene import robot_parts, scene_parts
+from scaffolding_assembly_core.urdf import (URDFReadError, link_geometry, load_urdf, mesh_references, movable_joints,
                                     stock_frame_problem, urdf_joints, urdf_links)
 
 #: A robot with every shape type, origins, a scaled mesh, a prismatic joint and a mimic joint.

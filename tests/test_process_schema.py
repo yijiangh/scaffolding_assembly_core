@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from process_fixtures import build_process
 
-from bar_assembly_core.process import ProcessError, SchemaMismatch, read, write
+from scaffolding_assembly_core.process import ProcessError, SchemaMismatch, read, write
 
 
 def _set_writer(path: Path, **changes) -> None:

@@ -6,9 +6,9 @@ from pathlib import Path
 import pytest
 from process_fixtures import build_process, joints, with_movement, with_start
 
-from bar_assembly_core.process import Process, Holder, RobotState, Target, ToolState
-from bar_assembly_core.process.plan_check import check_plan, end_state, unreached_targets
-from bar_assembly_core.geometry import Pose
+from scaffolding_assembly_core.process import Process, Holder, RobotState, Target, ToolState
+from scaffolding_assembly_core.process.plan_check import check_plan, end_state, unreached_targets
+from scaffolding_assembly_core.geometry import Pose
 
 CINDY, ALICE = "robots/cindy/left_tool0", "robots/alice/left_tool0"
 

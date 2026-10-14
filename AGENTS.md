@@ -1,4 +1,4 @@
-# Agent instructions: bar_assembly_core
+# Agent instructions: scaffolding_assembly_core
 
 This library is the shared core: one process format, one scene model and one plan check used by several
 consumers. A change that looks local here can break a consumer that is not in front of you.

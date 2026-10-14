@@ -1,5 +1,5 @@
 """
-The shared core of bar assembly, used alike by the monitor, the Rhino plugin and the planners.
+The shared core of scaffolding assembly, used alike by the monitor, the Rhino plugin and the planners.
 
 Layers, each importing only the ones above it:
     geometry, ids     poses, shapes, ids                                          numpy, scipy, trimesh

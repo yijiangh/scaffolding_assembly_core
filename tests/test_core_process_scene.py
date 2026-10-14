@@ -9,13 +9,13 @@ import numpy as np
 import pytest
 from process_fixtures import build_process
 
-from bar_assembly_core.geometry import Pose, compose, invert
-from bar_assembly_core.process.hold import closing_movement, hold_scenes, release_movement
-from bar_assembly_core.process.scenes import seeded
-from bar_assembly_core.ids import IdMap
-from bar_assembly_core.scene import retarget
-from bar_assembly_core.kinematics import link_pose
-from bar_assembly_core.scene import Attachment
+from scaffolding_assembly_core.geometry import Pose, compose, invert
+from scaffolding_assembly_core.process.hold import closing_movement, hold_scenes, release_movement
+from scaffolding_assembly_core.process.scenes import seeded
+from scaffolding_assembly_core.ids import IdMap
+from scaffolding_assembly_core.scene import retarget
+from scaffolding_assembly_core.kinematics import link_pose
+from scaffolding_assembly_core.scene import Attachment
 
 
 @pytest.fixture

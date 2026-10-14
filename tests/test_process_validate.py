@@ -7,9 +7,9 @@ from pathlib import Path
 import pytest
 from process_fixtures import build_process, joints, with_action, with_movement, with_start, write_robot_files
 
-from bar_assembly_core.process import (Process, ProcessError, Holder, LineSpec, RobotState, Target, ToolState, read,
+from scaffolding_assembly_core.process import (Process, ProcessError, Holder, LineSpec, RobotState, Target, ToolState, read,
                                       validate, write)
-from bar_assembly_core.geometry import Pose
+from scaffolding_assembly_core.geometry import Pose
 
 
 def _problems(process: Process) -> list:

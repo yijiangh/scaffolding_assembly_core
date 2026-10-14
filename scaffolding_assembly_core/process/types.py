@@ -55,7 +55,7 @@ class SchemaMismatch(ProcessError):
         """Name the file, its schema and the commit that wrote it."""
         self.schema, self.commit = schema, commit
         super().__init__([f"{path} has schema {schema}, this library reads schema {expected}; "
-                          f"check out bar_assembly_core at commit {commit} to read it"])
+                          f"check out scaffolding_assembly_core at commit {commit} to read it"])
 
 
 # --- --- --- --- --- PROCESS-LEVEL OBJECTS --- --- --- --- ---

@@ -5,12 +5,12 @@ from __future__ import annotations
 from dataclasses import replace
 from pathlib import Path
 
-from bar_assembly_core.process import (Action, BodySpec, Process, Holder, LineSpec, Movement, Producer, RobotSpec,
+from scaffolding_assembly_core.process import (Action, BodySpec, Process, Holder, LineSpec, Movement, Producer, RobotSpec,
                                       RobotState, State, Target, ToolState, Writer)
-from bar_assembly_core.geometry import BoxShape, CylinderShape, Geometry, Pose, TriMesh, compose, invert
-from bar_assembly_core.kinematics import link_pose
-from bar_assembly_core.robot import Tool
-from bar_assembly_core.process.meshes import write_mesh
+from scaffolding_assembly_core.geometry import BoxShape, CylinderShape, Geometry, Pose, TriMesh, compose, invert
+from scaffolding_assembly_core.kinematics import link_pose
+from scaffolding_assembly_core.robot import Tool
+from scaffolding_assembly_core.process.meshes import write_mesh
 
 WRITER = Writer(2, "design_io", "test", False)
 #: Joints a state must list for the fake robot (the wheel is passive, the tool0 joints fixed).

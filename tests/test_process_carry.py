@@ -2,9 +2,9 @@
 
 from process_fixtures import WRITER
 
-from bar_assembly_core.process import Action, Process, Movement, RobotState, State, Target, assumed_joints
-from bar_assembly_core.geometry import Pose
-from bar_assembly_core.process.carry import assumed_start_all
+from scaffolding_assembly_core.process import Action, Process, Movement, RobotState, State, Target, assumed_joints
+from scaffolding_assembly_core.geometry import Pose
+from scaffolding_assembly_core.process.carry import assumed_start_all
 
 ROBOTS = ("robots/a", "robots/b")
 

@@ -17,7 +17,7 @@ from .types import Writer
 #: shaped as a state with `robots`, a movement's `base`).
 SCHEMA = 2.1
 #: Library name written into every file.
-LIBRARY = "bar_assembly_core"
+LIBRARY = "scaffolding_assembly_core"
 
 _PACKAGE_DIR = Path(__file__).resolve().parent
 

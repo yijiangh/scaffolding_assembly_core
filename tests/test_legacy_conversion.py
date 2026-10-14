@@ -12,9 +12,9 @@ from pathlib import Path
 
 import pytest
 
-from bar_assembly_core.process import read
-from bar_assembly_core.process.plan_check import check_plan
-from bar_assembly_core.legacy.conversion import convert_export
+from scaffolding_assembly_core.process import read
+from scaffolding_assembly_core.process.plan_check import check_plan
+from scaffolding_assembly_core.legacy.conversion import convert_export
 
 STUDY = Path(os.environ.get("HUSKY_DESIGN_STUDY", "/nonexistent"))
 DATA = Path(os.environ.get("HUSKY_DATA", "/nonexistent"))

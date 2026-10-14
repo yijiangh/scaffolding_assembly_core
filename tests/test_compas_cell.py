@@ -10,8 +10,8 @@ from pathlib import Path
 import pytest
 from process_fixtures import build_process
 
-from bar_assembly_core.mirrors.cell import CompasFabCell
-from bar_assembly_core.mirrors.compas import PARKED_POSITION
+from scaffolding_assembly_core.mirrors.cell import CompasFabCell
+from scaffolding_assembly_core.mirrors.compas import PARKED_POSITION
 
 
 def _movement(process, movement_id):
@@ -35,7 +35,7 @@ def test_cell_is_kept_until_a_geometry_changes(process):
     assert cells.cell is cell
 
     from dataclasses import replace
-    from bar_assembly_core.geometry import Geometry
+    from scaffolding_assembly_core.geometry import Geometry
     bodies = dict(process.bodies)
     old = bodies["bars/B2"].geometry
     bodies["bars/B2"] = replace(bodies["bars/B2"], geometry=Geometry(old.visual, old.collision))
@@ -97,7 +97,7 @@ def test_unknown_other_robots_are_parked(process):
 
 def test_mirror_plans_on_the_cell(process):
     """The mirror syncs, keeps its cell across syncs, and names collision pairs by our ids."""
-    from bar_assembly_core.mirrors.compas_fab import CompasFabMirror
+    from scaffolding_assembly_core.mirrors.compas_fab import CompasFabMirror
 
     mirror = CompasFabMirror("robots/cindy")
     try:

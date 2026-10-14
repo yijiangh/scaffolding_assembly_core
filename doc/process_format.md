@@ -1,7 +1,7 @@
 # Process file format, schema 2.1
 
 Status: **implemented** (schema 2.1 of 2026-10-13; schema 2 with the decisions of 2026-10-09, then the changes listed below). Read and written by
-`bar_assembly_core.process`, part of the shared core `bar_assembly_core` (plan: husky-assembly-teleop
+`scaffolding_assembly_core.process`, part of the shared core `scaffolding_assembly_core` (plan: husky-assembly-teleop
 `tasks/2026-10-08_shared_core.md` §12; decisions: `tasks/2026-10-09_core_integration/README.md`). This is the in-repo copy of the doc "Husky
 design format: schema 2 proposal", which also gives the reasons and the examples from the 260814 export. Where the
 proposal leaves a point open, the choice made here is marked **Resolved**.
@@ -307,7 +307,7 @@ change. Where the 14 keys of the old export go:
 ## 7. Tool vocabulary
 
 Every tool has one lasting state, its grip; Cindy's tools also have one drive, the jointing screw
-(`bar_assembly_core.process.vocabulary`). The vocabulary is part of the schema: adding a kind, a grip value or a drive
+(`scaffolding_assembly_core.process.vocabulary`). The vocabulary is part of the schema: adding a kind, a grip value or a drive
 raises the schema number. Motor activity (`IDLE`, `TIGHTENING`, `LOOSENING`, `STALLED`) is execution data for `runs/`.
 
 | Kind | Channel | Values | Hardware | How a change ends (controller) |
@@ -391,7 +391,7 @@ tool as one convex hull, which overlaps the bar it holds by about 1 mm (the real
 ## 9. Writer and producer
 
 ```json
-"writer": {"schema": 2.1, "library": "bar_assembly_core", "commit": "3f9c2e71b0ad", "dirty": false},
+"writer": {"schema": 2.1, "library": "scaffolding_assembly_core", "commit": "3f9c2e71b0ad", "dirty": false},
 "producer": {"repo": "bar_joint_rhino_design_workflow", "commit": "9a1b…", "dirty": false, "command": "RSExportProcess"}
 ```
 
@@ -445,8 +445,8 @@ Two groups of checks, run at different times. Every message starts with its chec
 
 | Group | Runs in | When | On failure |
 |---|---|---|---|
-| A, file checks | `bar_assembly_core.process` (`read`, `write`, `validate`; `read_solutions`, `write_solution` for A14) | On every read and write | The file is rejected; every problem is reported at once |
-| B, plan checks | `bar_assembly_core.process.plan_check.check_plan` | On demand: Rhino before export, planners before planning, the monitor before execution | Errors block execution; warnings are reported |
+| A, file checks | `scaffolding_assembly_core.process` (`read`, `write`, `validate`; `read_solutions`, `write_solution` for A14) | On every read and write | The file is rejected; every problem is reported at once |
+| B, plan checks | `scaffolding_assembly_core.process.plan_check.check_plan` | On demand: Rhino before export, planners before planning, the monitor before execution | Errors block execution; warnings are reported |
 
 ### 11.1 A: file checks
 
@@ -525,7 +525,7 @@ Two groups of checks, run at different times. Every message starts with its chec
 ## Appendix A. Mapping to compas_fab
 
 Planners get a compas_fab cell by syncing a scene (`process.scene_at(movement)`) into a `CompasFabMirror` for the acting
-robot (`bar_assembly_core/mirrors/compas_fab.py`). The cell itself is built by `CompasFabCell` (`mirrors/cell.py`), which
+robot (`scaffolding_assembly_core/mirrors/compas_fab.py`). The cell itself is built by `CompasFabCell` (`mirrors/cell.py`), which
 viewers also use without PyBullet:
 
 | Process / scene | compas_fab |
@@ -538,7 +538,7 @@ viewers also use without PyBullet:
 | Held by another robot, or built | stationary at its world pose |
 | Derived contacts (§8.4) | `touch_links` (acting robot links) and `touch_bodies` (bodies, tools, other robots) |
 
-## Appendix B. Old export → schema 2 (`bar_assembly_core.legacy`)
+## Appendix B. Old export → schema 2 (`scaffolding_assembly_core.legacy`)
 
 The converter replays the bars' `attached` and `built` flags and the tool states along the schedule; it does not copy
 the export's per-state attachments and contacts.
@@ -578,7 +578,7 @@ the export's per-state attachments and contacts.
 ```json
 {
   "format": "husky_process",
-  "writer": {"schema": 2.1, "library": "bar_assembly_core", "commit": "3f9c2e71b0ad", "dirty": false},
+  "writer": {"schema": 2.1, "library": "scaffolding_assembly_core", "commit": "3f9c2e71b0ad", "dirty": false},
   "robots": {
     "robots/cindy": {"urdf": "robots/cindy/robot.urdf", "srdf": "robots/cindy/robot.srdf", "files_hash": "9f2c…",
                      "serial": "0806",
