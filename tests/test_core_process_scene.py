@@ -47,10 +47,12 @@ def test_scene_at_robots_and_held_body(process):
     assert scene.bodies["joints/G1_ground"].placement == on_flange
     tool0 = link_pose(cindy.model.urdf, cindy.base, cindy.joints, "left_tool0")
     np.testing.assert_allclose(scene.world_poses["bars/B1"].position, compose(tool0, grasp).position, atol=1e-9)
-    # * Derived contacts: the tool with the half it is on, halves with their bar, the pending ground mate, wheels.
+    # * Derived contacts: the tool with the half it is on, halves with their bar, the pending ground mate, and every
+    # * robot's wheels, the absent Alice's too.
     assert set(scene.bodies["joints/G1_ground"].touches) == {"tools/cindy/AT3L", "bars/B1", "ground/WG0"}
     assert set(scene.bodies["bars/B1"].touches) == {"joints/G1_ground", "joints/J1_female", "tools/cindy/AT3L"}
-    assert set(scene.bodies["ground/WG0"].touches) == {"joints/G1_ground", "robots/cindy/wheel_link"}
+    assert set(scene.bodies["ground/WG0"].touches) == {"joints/G1_ground", "robots/alice/wheel_link",
+                                                       "robots/cindy/wheel_link"}
     assert cindy.model.tool_touches["left_tool0"] == ("left_tool0",), "a tool may touch the last links of its arm"
 
 

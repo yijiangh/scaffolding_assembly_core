@@ -238,7 +238,7 @@ the structure by hand at its place in the schedule (absent before it, built afte
 
 | Key | Type | Req. | Meaning |
 |---|---|---|---|
-| `robots` | map robot id → RobotState or `null` | yes | Every robot. `null`: not in the scene. |
+| `robots` | map robot id → RobotState or `null` | yes | Every robot. `null`: absent: the state does not place it, and a scene disables it (its ground links may still touch the ground, §8.4). |
 | `present` | array of body ids | yes | Every body that exists now and is not mounted on another: bars, ground, obstacles. A mounted body (a half) is never listed: it is present exactly when its bar is. There is no override: a present bar has all its halves. |
 | `attached` | map bar id → array of Holder | no | Bars held by a robot, each holder with its grasp (§8.1). |
 | `built` | array of bar ids | no | Bars fixed in the structure: they take their assembly pose. |
@@ -382,7 +382,7 @@ Derived, never stored (`relations.allowed_contacts`):
 | A half may touch the bar it is mounted on | `mount` |
 | The halves of a pending or engaged mate may touch each other, and each other's bar | `mates`, `built`, `attached` |
 | A half mated to a ground body may touch every present `ground/` body | `mates`, the body's prefix |
-| A present robot's ground links may touch any `ground/` body | `ground_links`, the body's prefix |
+| A robot's ground links may touch any present `ground/` body, also where the state leaves the robot out (it still stands on the floor) | `ground_links`, the body's prefix |
 | A tool may touch the last links of the arm it is mounted on | the flange it is mounted on (not stored: `urdf.TOOL_TOUCHES_ARM_LINKS`) |
 
 The part rules are as wide as the parts because collision models are coarser than the parts: compas_fab checks each

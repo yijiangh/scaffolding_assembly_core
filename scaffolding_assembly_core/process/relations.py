@@ -4,7 +4,7 @@ What follows from a state and the process without being stored (format §8): whe
 - Where a bar is: built -> its assembly pose; attached and not built -> its first holder's link times the grasp;
   otherwise the pose in `State.poses`, else its assembly pose. A mounted half follows its bar.
 - Allowed contacts: a tool with the whole part it is on, a half with its bar, a pending or engaged mate's halves with
-  each other and with each other's bar, a ground-mated half and a present robot's ground links with every ground body.
+  each other and with each other's bar, a ground-mated half and every robot's ground links with every ground body.
   Mount contacts belong to the robot model (`RobotModel`).
 """
 
@@ -100,7 +100,8 @@ def allowed_contacts(process: Process, state: State) -> Set[Tuple[str, str]]:
 
     - A tool on a body may touch that body's whole part: its bar and every half mounted on it.
     - A half may touch its bar; the halves of a pending or engaged mate each other, and each other's bar.
-    - A half mated to a ground body, and a present robot's ground links, may touch every present ground body.
+    - A half mated to a ground body, and every robot's ground links, may touch every present ground body. A robot
+      the state leaves out still stands on the floor in the real world.
 
     ? Collision models are coarser than the parts: a tool's convex hull overlaps the bar it holds by about 1 mm.
 
@@ -140,8 +141,7 @@ def allowed_contacts(process: Process, state: State) -> Set[Tuple[str, str]]:
                 for ground in grounds:
                     add(side, ground)
     for robot_id, robot in process.robots.items():
-        if state.robots.get(robot_id) is not None:
-            for link in robot.ground_links:
-                for ground in grounds:
-                    add(f"{robot_id}/{link}", ground)
+        for link in robot.ground_links:
+            for ground in grounds:
+                add(f"{robot_id}/{link}", ground)
     return pairs

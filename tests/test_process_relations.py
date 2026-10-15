@@ -74,6 +74,10 @@ def test_allowed_contacts_are_derived(process):
         G1_MATE, J1_MATE, ("bars/B1", "joints/J1_male"), ("bars/B2", "joints/J1_female"),
         ("ground/WG0", "robots/alice/wheel_link"), ("ground/WG0", "robots/cindy/wheel_link"),
     }
-    # * Before B1 is mounted: B1's halves are absent, the open J1 mate allows nothing, Alice (absent) has no wheels.
-    assert allowed_contacts(process, _start(process, "B1_M0_mount")) == {
-        ("bars/B2", "joints/J1_male"), ("ground/WG0", "robots/cindy/wheel_link")}
+    # * Before B1 is mounted: B1's halves are absent, the open J1 mate allows nothing; Alice is absent from the state
+    # * but still stands on the floor, so her wheels may touch it.
+    before = _start(process, "B1_M0_mount")
+    assert before.robots.get("robots/alice") is None
+    assert allowed_contacts(process, before) == {
+        ("bars/B2", "joints/J1_male"), ("ground/WG0", "robots/alice/wheel_link"),
+        ("ground/WG0", "robots/cindy/wheel_link")}
