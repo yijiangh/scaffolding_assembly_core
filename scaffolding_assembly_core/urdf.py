@@ -10,12 +10,14 @@ link's shapes (`link_geometry`). SRDFs, copying and path rewriting use plain `xm
 from __future__ import annotations
 
 import os
+import re
 import shutil
+from dataclasses import dataclass
 from hashlib import sha256
 from io import BytesIO
 from pathlib import Path, PurePath
 from threading import Lock
-from typing import Dict, Optional, Sequence, Tuple
+from typing import Dict, List, Mapping, Optional, Sequence, Tuple
 from xml.etree.ElementTree import Element, ElementTree, TreeBuilder, XMLParser, parse, tostring
 
 import numpy as np
@@ -408,3 +410,83 @@ def stock_frame_problem(urdf_file: Path, arm_name: str) -> Optional[str]:
             f"ones (xyz 0 0 0, rpy 0 0 pi): {', '.join(wrong)}. So {arm_name}_base_link is not the robot "
             f"controller's base_link. The arm's mounting belongs in the joint above it. "
             f"Fix with scripts/fix_ur_base_frames.py; see doc/ur_frames.md.")
+
+
+# --- --- --- --- --- UR FACTORY CALIBRATION --- --- --- --- ---
+
+#: Section of a UR calibration (the `kinematics` of the driver's calibration.yaml) -> the arm joint whose origin it
+#: is, as ur_description's ur_macro.xacro builds the URDF from it.
+UR_CALIBRATION_JOINTS = {"shoulder": "shoulder_pan_joint", "upper_arm": "shoulder_lift_joint",
+                         "forearm": "elbow_joint", "wrist_1": "wrist_1_joint", "wrist_2": "wrist_2_joint",
+                         "wrist_3": "wrist_3_joint"}
+#: Origin differences below these count as the same: metres, radians. Far below what a calibration changes.
+UR_CALIBRATION_POSITION_TOLERANCE = 1e-5
+UR_CALIBRATION_ANGLE_TOLERANCE = 1e-5
+
+
+@dataclass(frozen=True)
+class JointOriginChange:
+    """How far one joint origin moved when a calibration was applied.
+
+    Attributes:
+        joint: The joint's name, e.g. "left_ur_arm_shoulder_pan_joint".
+        distance: Change of its origin position, metres.
+        angle: Change of its origin orientation, radians.
+    """
+
+    joint: str
+    distance: float
+    angle: float
+
+
+def apply_ur_calibration(urdf_text: str, arm_name: str,
+                         calibration: Mapping) -> Tuple[str, List[JointOriginChange]]:
+    """Set an arm's six joint origins to a UR factory calibration; a URDF that already has it comes back unchanged.
+
+    Only origins that differ beyond the tolerances are rewritten, so applying the calibration a URDF was built with
+    changes nothing, and the returned changes say how out of date a URDF is.
+
+    Args:
+        urdf_text: The robot's URDF.
+        arm_name: The arm's prefix, e.g. "ur_arm".
+        calibration: The parsed calibration file: `{"kinematics": {...}}` or its `kinematics` section, with x, y, z,
+            roll, pitch, yaw per section of UR_CALIBRATION_JOINTS.
+
+    Returns:
+        tuple[str, list[JointOriginChange]]: The URDF text, and each joint whose origin changed, with how much.
+
+    Raises:
+        KeyError: If a section or value is missing from the calibration, or an arm joint from the URDF.
+    """
+    kinematics = calibration.get("kinematics", calibration)
+    changes = []
+    for section, joint_suffix in UR_CALIBRATION_JOINTS.items():
+        values = kinematics[section]
+        position = np.array([float(values[k]) for k in ("x", "y", "z")])
+        rpy = np.array([float(values[k]) for k in ("roll", "pitch", "yaw")])
+        joint = f"{arm_name}_{joint_suffix}"
+        # ! Comments are blanked before searching: the files keep old origins, and whole transmission blocks naming
+        #   the same joints, commented out. Blanking keeps every position, so edits apply to the real text.
+        live_text = re.sub(r"<!--.*?-->", lambda m: " " * len(m.group(0)), urdf_text, flags=re.S)
+        block = re.search(r'<joint\s+name="' + re.escape(joint) + r'".*?</joint>', live_text, re.S)
+        if block is None:
+            raise KeyError(f"no joint {joint} in the URDF")
+        body = urdf_text[block.start():block.end()]
+        tag = re.search(r"<origin\b[^>]*/>", live_text[block.start():block.end()])
+        old_position, old_rpy = np.zeros(3), np.zeros(3)
+        if tag is not None:
+            for name, target in (("xyz", old_position), ("rpy", old_rpy)):
+                found = re.search(name + r'="([^"]*)"', tag.group(0))
+                if found:
+                    target[:] = [float(v) for v in found.group(1).split()]
+        distance = float(np.linalg.norm(position - old_position))
+        angle = float((Rotation.from_euler("xyz", old_rpy).inv() * Rotation.from_euler("xyz", rpy)).magnitude())
+        if distance <= UR_CALIBRATION_POSITION_TOLERANCE and angle <= UR_CALIBRATION_ANGLE_TOLERANCE:
+            continue
+        new_tag = (f'<origin rpy="{" ".join(repr(float(v)) for v in rpy)}" '
+                   f'xyz="{" ".join(repr(float(v)) for v in position)}" />')
+        body = (body[:tag.start()] + new_tag + body[tag.end():] if tag is not None
+                else body.replace("</joint>", f"  {new_tag}\n    </joint>"))
+        urdf_text = urdf_text[:block.start()] + body + urdf_text[block.end():]
+        changes.append(JointOriginChange(joint, distance, angle))
+    return urdf_text, changes

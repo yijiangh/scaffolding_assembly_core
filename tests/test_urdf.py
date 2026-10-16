@@ -16,8 +16,9 @@ from scaffolding_assembly_core.geometry import BoxShape, CylinderShape, Pose, Tr
 from scaffolding_assembly_core.kinematics import link_pose, link_poses
 from scaffolding_assembly_core.robot import robot_model
 from scaffolding_assembly_core.scene import robot_parts, scene_parts
-from scaffolding_assembly_core.urdf import (URDFReadError, link_geometry, load_urdf, mesh_references, movable_joints,
-                                    stock_frame_problem, urdf_joints, urdf_links)
+from scaffolding_assembly_core.urdf import (UR_CALIBRATION_JOINTS, URDFReadError, apply_ur_calibration, link_geometry,
+                                            load_urdf, mesh_references, movable_joints, stock_frame_problem,
+                                            urdf_joints, urdf_links)
 
 #: A robot with every shape type, origins, a scaled mesh, a prismatic joint and a mimic joint.
 SHAPES_URDF = """<?xml version="1.0"?>
@@ -195,3 +196,42 @@ def test_husky_robots(name):
     geometry = link_geometry(urdf, [packages])
     assert geometry and all(g.visual or g.collision for g in geometry.values())
     assert link_geometry(urdf, [packages]) is geometry
+
+
+def _ur_arm(origins) -> str:
+    """URDF text of one arm "arm": its six joints with these (xyz, rpy) origins, a commented-out old origin and a
+    commented-out transmission naming the first joint, as the hand-edited husky files have them."""
+    joints = "".join(
+        f'''<link name="l{i}"/><joint name="arm_{suffix}" type="revolute"><parent link="l{i - 1}"/>
+        <child link="l{i}"/><!-- <origin xyz="9 9 9" rpy="0 0 0"/> --><origin rpy="{rpy}" xyz="{xyz}" />
+        <axis xyz="0 0 1"/><limit lower="-3" upper="3" effort="1" velocity="1"/></joint>'''
+        for i, (suffix, (xyz, rpy)) in enumerate(zip(UR_CALIBRATION_JOINTS.values(), origins), start=1))
+    return ('<robot name="ur"><link name="l0"/><!-- <transmission><joint name="arm_shoulder_pan_joint"/>'
+            '</transmission> -->' + joints + "</robot>")
+
+
+def test_ur_calibration_applies_only_what_differs(tmp_path):
+    """The calibration a URDF was built with changes nothing; a new one rewrites only the joints that differ."""
+    origins = [("0 0 0.1625", "0 0 0"), ("0 0 0", "1.5707963 0 0"), ("-0.425 0 0", "0 0 0"),
+               ("-0.3922 0 0.1333", "0 0 0"), ("0 -0.0997 0", "1.5707963 0 0"), ("0 0.0996 0", "1.5707963 3.14159 3.14159")]
+    text = _ur_arm(origins)
+    calibration = {section: dict(zip(("x", "y", "z", "roll", "pitch", "yaw"),
+                                     [float(v) for v in xyz.split()] + [float(v) for v in rpy.split()]))
+                   for section, (xyz, rpy) in zip(UR_CALIBRATION_JOINTS, origins)}
+    same, changes = apply_ur_calibration(text, "arm", {"kinematics": calibration})
+    assert same == text and changes == []
+    calibration["forearm"] = {**calibration["forearm"], "x": -0.4243, "yaw": 0.002}
+    changed, changes = apply_ur_calibration(text, "arm", calibration)
+    assert [c.joint for c in changes] == ["arm_elbow_joint"]
+    assert changes[0].distance == pytest.approx(0.0007) and changes[0].angle == pytest.approx(0.002)
+    urdf = tmp_path / "arm.urdf"
+    urdf.write_text(changed)
+    elbow = next(j for j in load_urdf(urdf).robot.joints if j.name == "arm_elbow_joint")
+    np.testing.assert_allclose(elbow.origin[:3, 3], [-0.4243, 0.0, 0.0])
+    assert "9 9 9" in changed and "<transmission>" in changed  # * comments are left as they were
+
+
+def test_ur_calibration_needs_every_section():
+    """A calibration missing a section is refused, not half applied."""
+    with pytest.raises(KeyError):
+        apply_ur_calibration(_ur_arm([("0 0 0", "0 0 0")] * 6), "arm", {"shoulder": {}})
