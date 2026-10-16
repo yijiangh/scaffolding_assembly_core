@@ -25,7 +25,7 @@ PROCESS_FILE = "process.json"
 CONVERTED_SUFFIX = "_process"
 
 #: Robot name in the schedule -> (URDF, SRDF) under the data directory, as the Rhino workflow's
-#: `core/config.py` uses them. ! The calibrated files, not the monitor's `_StockUrFrames` variants.
+#: `core/config.py` uses them: the calibrated files, with the stock UR base frames since husky_urdf's 16 Oct 2026 fix.
 ROBOT_FILES = {
     "Cindy": ("husky_urdf/mt_husky_dual_ur5_e_moveit_config/urdf/husky_dual_ur5_e_no_base_joint_All_Calibrated.urdf",
               "husky_urdf/mt_husky_dual_ur5_e_moveit_config/config/dual_arm_husky.srdf"),
