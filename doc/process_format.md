@@ -31,7 +31,9 @@ and give an example.
 A **process** is the plan for one assembly: the robots, their tools and every body; the schedule; and per movement its
 start state, its target and the parts that say what moves and how it ends.
 
-1. **The file is the in-memory `Process`, one to one.** Scenes, mirrors and host details never appear in it.
+1. **The file is the in-memory `Process`, field for field:** one dataclass per object of this format, named as its
+   keys. Scenes, mirrors and host details are derived from it or live beside it, never in it. Only file plumbing
+   differs: robot paths and their `files_hash`, mesh files, the `writer` stamp.
 2. **The process is the plan:** planned poses, what moves, and how each movement ends. No planner status, no
    measurements. The one planner result it holds is a target's solved keyframe (§5.3 says why).
 3. **Three products, each with one writer:** the process folder (Rhino), `solutions/` (planners), `runs/` (the
