@@ -45,8 +45,8 @@ def _model(robot_id: str, urdf, srdf, tools: Tuple[Tuple[str, Tool], ...]) -> Ro
     return robot_model(robot_id.split("/", 1)[1], urdf, srdf, dict(tools))
 
 
-def scene_at(process: Process, movement: Movement) -> Scene:
-    """The world at the start of a movement, as the process gives it.
+def scene_at(process: Process, movement: Movement, at_end: bool = False) -> Scene:
+    """The world at the start of a movement, as the process gives it; with `at_end`, its target joints applied.
 
     - A robot absent from the state is disabled; one with `joints: null` has every movable joint `unmeasured`
       (at 0), one with `base: null` is not `base_tracked`, so planners refuse it until its owner fills them in.
@@ -58,11 +58,14 @@ def scene_at(process: Process, movement: Movement) -> Scene:
     Args:
         process: The process.
         movement: One of its movements.
+        at_end: Apply the movement's target joints, for the world as the movement ends. Bodies keep their start
+            placement; held ones move with the robot holding them.
 
     Returns:
         Scene: A new scene, `tick` -1.
     """
-    return _scene(process, movement.start)
+    target = movement.target.joints if at_end and movement.target is not None else None
+    return _scene(process, movement.start, target)
 
 
 def scene_after(process: Process, bar: str) -> Scene:

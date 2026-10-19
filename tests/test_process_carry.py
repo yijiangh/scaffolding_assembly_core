@@ -1,8 +1,11 @@
-"""Tests for process carry: joints assumed for movements without authored start joints."""
+"""Tests for process carry (joints assumed for movements without authored start joints), joints_at and lookups."""
 
 from process_fixtures import WRITER
 
-from scaffolding_assembly_core.process import Action, Process, Movement, RobotState, State, Target, assumed_joints
+import pytest
+
+from scaffolding_assembly_core.process import (Action, Process, Movement, RobotState, State, Target, assumed_joints,
+                                               joints_at)
 from scaffolding_assembly_core.geometry import Pose
 from scaffolding_assembly_core.process.carry import assumed_start_all
 
@@ -61,3 +64,44 @@ def test_nothing_known():
                      _action("A2", "robots/b", _movement("M2", "robots/b", start={"k": 1.0})))
     assert assumed_joints(process, "A1", "M0") == (None, "")
     assert assumed_joints(process, "A1", "M1") == (None, "")
+
+
+def test_joints_at_fills_only_the_acting_robot_with_its_assumed_start():
+    """Authored joints as given; the acting robot's null start takes its assumed start; other null robots stay empty."""
+    process = _process(_action("A1", "robots/a",
+                               _movement("M0", "robots/a", start={"j1": 1.0}, target={"j1": 2.0}),
+                               _movement("M1", "robots/a")))
+    assert joints_at(process, "A1", "M0") == {"robots/a": {"j1": 1.0}, "robots/b": {}}
+    assert joints_at(process, "A1", "M1") == {"robots/a": {"j1": 2.0}, "robots/b": {}}
+
+
+def test_joints_at_end_applies_the_target_and_takes_a_precomputed_carry():
+    """With `at_end` the target's joints override; a precomputed `assumed_start_all` gives the same answer."""
+    process = _process(_action("A1", "robots/a",
+                               _movement("M0", "robots/a", start={"j1": 1.0, "j2": 0.5}, target={"j1": 2.0})))
+    expected = {"robots/a": {"j1": 2.0, "j2": 0.5}, "robots/b": {}}
+    assert joints_at(process, "A1", "M0", at_end=True) == expected
+    assert joints_at(process, "A1", "M0", at_end=True, assumed=assumed_start_all(process)) == expected
+    with pytest.raises(KeyError):
+        joints_at(process, "A1", "missing")
+
+
+def test_joints_at_end_leaves_out_a_robot_absent_from_the_start():
+    """A robot the target names but the start state leaves out stays out, as in `scene_at`."""
+    movement = _movement("M0", "robots/a", start={"j1": 1.0})
+    absent_b = Movement(id="M0", arms=movement.arms, path="free", controller="position",
+                        start=State(robots={"robots/a": RobotState(Pose(), {"j1": 1.0})}, present=frozenset(),
+                                    poses={}),
+                        target=Target.of(joints={"robots/a": {"j1": 2.0}, "robots/b": {"k": 1.0}}))
+    process = _process(_action("A1", "robots/a", absent_b))
+    assert joints_at(process, "A1", "M0", at_end=True) == {"robots/a": {"j1": 2.0}}
+
+
+def test_find_movement_and_movement_after_follow_the_schedule():
+    """Lookup by ids, and the next movement across actions; None after the last or for unknown ids."""
+    first, second, third = (_movement("M0", "robots/a"), _movement("M1", "robots/a"), _movement("M2", "robots/b"))
+    process = _process(_action("A1", "robots/a", first, second), _action("A2", "robots/b", third))
+    assert process.find_movement("A1", "M1") is second
+    assert process.find_movement("A1", "M2") is None and process.find_movement("A9", "M0") is None
+    assert process.movement_after(first) is second and process.movement_after(second) is third
+    assert process.movement_after(third) is None

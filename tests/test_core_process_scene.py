@@ -85,6 +85,19 @@ def test_scene_shares_only_geometry_and_models(process):
     assert edited.scene_at(movement).robots["robots/cindy"].model is first.robots["robots/cindy"].model
 
 
+def test_scene_at_end_applies_the_target_joints(process):
+    """At a movement's end its target's joints are set; other robots and every body's placement stay as at the start."""
+    movement = next(movement for _, movement in process.movements()
+                    if movement.target is not None and movement.target.joints)
+    start, end = process.scene_at(movement), process.scene_at(movement, at_end=True)
+    for robot_id, joints in movement.target.joints.items():
+        assert {name: end.robots[robot_id].joints[name] for name in joints} == joints
+    for robot_id in set(start.robots) - set(movement.target.joints):
+        assert end.robots[robot_id].joints == start.robots[robot_id].joints
+    assert {body_id: body.placement for body_id, body in end.bodies.items()} == \
+        {body_id: body.placement for body_id, body in start.bodies.items()}
+
+
 def test_scene_after_follows_the_schedule(process):
     """After B2: the next action's start. After B1 (its hold release ends the schedule): the last target's joints."""
     after_b2 = process.scene_after("bars/B2")
