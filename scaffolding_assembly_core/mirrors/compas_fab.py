@@ -4,7 +4,8 @@ A compas_fab planning world for one acting robot, filled from a `Scene`.
 The cell and its states come from `cell.CompasFabCell` (acting robot with its tools, other robots as tools, bodies
 by our id), built without visual shapes. Other robots are parked far away while absent or while their base or joints
 are unknown (`parked`). `sync` rebuilds the cell (~2 s) only when a model, body id or geometry
-object changed. `collisions` is compas_fab's own check; `search_check` is a fast copy of it for searches. `lend`
+object changed. `collisions` is compas_fab's own check (CC.1 to CC.5) plus the mirror's tool-against-tool pairs
+(CC.6); `search_check` is a fast copy of the same pairs for searches. `lend`
 hands the planner to other code, such as tamp. `set_gui(True)` shows the world in PyBullet's own window (one per
 process) for debugging.
 
