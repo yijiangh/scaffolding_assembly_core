@@ -322,6 +322,12 @@ class PyBulletMirror:
             joint = SubElement(root, "joint", name=f"{_tool_link(flange)}_joint", type="fixed")
             SubElement(joint, "parent", link=flange)
             SubElement(joint, "child", link=_tool_link(flange))
+        # * PyBullet's own default for a link without inertia, written out: it prints two lines per such link.
+        for link in root.iter("link"):
+            if link.find("inertial") is None:
+                inertial = SubElement(link, "inertial")
+                SubElement(inertial, "mass", value="1")
+                SubElement(inertial, "inertia", ixx="1", iyy="1", izz="1", ixy="0", ixz="0", iyz="0")
         path = self._urdfs[model] = folder / f"{stem}.urdf"
         ElementTree(root).write(str(path), encoding="utf-8", xml_declaration=True)
         return path
