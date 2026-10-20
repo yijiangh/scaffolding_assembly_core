@@ -354,14 +354,33 @@ class Process:
             for movement in action.movements:
                 yield action, movement
 
-    def scene_at(self, movement: Movement) -> Scene:
-        """The world at the start of one movement; it shares nothing mutable with the process (`scenes.scene_at`).
+    def find_movement(self, action_id: str, movement_id: str) -> Optional[Movement]:
+        """A movement by its action and movement ids, or None if there is no such action or movement."""
+        action = self.actions.get(action_id)
+        if action is None:
+            return None
+        return next((movement for movement in action.movements if movement.id == movement_id), None)
 
-        ! Run it when the process or the movement changes, not every tick.
+    def movement_after(self, movement: Movement) -> Optional[Movement]:
+        """The movement after `movement` in the schedule, or None after the last or for one not in the process.
+
+        ! Matched by identity, not equality: pass a movement taken from this process, not a copy.
+        """
+        found = False
+        for _action, candidate in self.movements():
+            if found:
+                return candidate
+            found = candidate is movement
+        return None
+
+    def scene_at(self, movement: Movement, at_end: bool = False) -> Scene:
+        """The world at the start of one movement, or with `at_end` its target joints applied (`scenes.scene_at`).
+
+        It shares nothing mutable with the process. ! Run it when the process or the movement changes, not every tick.
         """
         # ? Imported here: the scene and its robots stay out of `import process`.
         from .scenes import scene_at
-        return scene_at(self, movement)
+        return scene_at(self, movement, at_end)
 
     def scene_after(self, bar: str) -> Scene:
         """The world once a bar is built, following the schedule (`scenes.scene_after`)."""

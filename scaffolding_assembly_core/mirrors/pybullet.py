@@ -322,6 +322,12 @@ class PyBulletMirror:
             joint = SubElement(root, "joint", name=f"{_tool_link(flange)}_joint", type="fixed")
             SubElement(joint, "parent", link=flange)
             SubElement(joint, "child", link=_tool_link(flange))
+        # * PyBullet's own default for a link without inertia, written out: it prints two lines per such link.
+        for link in root.iter("link"):
+            if link.find("inertial") is None:
+                inertial = SubElement(link, "inertial")
+                SubElement(inertial, "mass", value="1")
+                SubElement(inertial, "inertia", ixx="1", iyy="1", izz="1", ixy="0", ixz="0", iyz="0")
         path = self._urdfs[model] = folder / f"{stem}.urdf"
         ElementTree(root).write(str(path), encoding="utf-8", xml_declaration=True)
         return path
@@ -382,10 +388,12 @@ class PyBulletMirror:
                 or any(_matches(entry, a) for entry in self._touches.get(b, ())))
 
     def collisions(self, object_id: str, margin: float = 0.0, candidates: Iterable[str] | None = None) -> list[str]:
-        """Everything within `margin` of a robot, as it stands now, except allowed pairs.
+        """Everything within `margin` of a robot or body, as it stands now, except allowed pairs.
+
+        A disabled body hits nothing, and a concave body never hits another concave one (Bullet's limit).
 
         Args:
-            object_id: The robot to check, by id.
+            object_id: The robot or body to check, by id; a body with several meshes is checked with all of them.
             margin: Distance below which two objects count as colliding, metres.
             candidates: Only check these ids (e.g. after a cheap pre-check), or None for everything.
 
@@ -397,16 +405,16 @@ class PyBulletMirror:
         """
         if self._problems.get(object_id):
             raise ValueError(f"cannot check {object_id}: {'; '.join(self._problems[object_id])}")
-        robot = self._built[object_id]
+        checked = self._built[object_id]
         hits: set[str] = set()
         for other_id in self._built if candidates is None else candidates:
             if other_id == object_id or other_id in self._disabled:
                 continue
             other = self._built[other_id]
-            for body in other.bodies:
-                for contact in p.getClosestPoints(robot.bodies[0], body, margin, physicsClientId=self.client_id):
+            for own_body, body in ((a, b) for a in checked.bodies for b in other.bodies):
+                for contact in p.getClosestPoints(own_body, body, margin, physicsClientId=self.client_id):
                     # ? contact[3] / contact[4]: link index on each side; -1 is the base, links[0].
-                    own = _names(object_id, robot, contact[3])
+                    own = _names(object_id, checked, contact[3])
                     target = _names(other_id, other, contact[4])
                     if not any(self.allowed(a, b) for a in own for b in target):
                         hits.add(other_id)

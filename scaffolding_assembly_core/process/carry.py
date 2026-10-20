@@ -89,3 +89,44 @@ def assumed_joints(process: Process, action_id: str, movement_id: str) -> tuple[
         KeyError: If the action has no such movement.
     """
     return assumed_start_all(process)[(action_id, movement_id)]
+
+
+def joints_at(process: Process, action_id: str, movement_id: str, at_end: bool = False,
+              assumed: Optional[Dict[Tuple[str, str], Assumed]] = None) -> Dict[str, Dict[str, float]]:
+    """The joints to show each robot of a movement at: its start, or with `at_end` its target joints applied.
+
+    Authored joints first; the acting robot's `joints: null` takes its assumed start (this module's rules), or an
+    empty dict when nothing is known. A robot absent from the start state is left out, also when the target names it.
+    * The assumed view, for display and seeding: `scene_at` instead leaves such joints `unmeasured`, at 0.
+
+    Args:
+        process: The process.
+        action_id: The action.
+        movement_id: One of its movements.
+        at_end: Apply the movement's target joints.
+        assumed: `assumed_start_all(process)`, keyed (action id, movement id), when stepping through many movements;
+            computed here if None.
+
+    Returns:
+        dict[str, dict[str, float]]: Robot id -> joint name -> value.
+
+    Raises:
+        KeyError: If the action has no such movement, or the action is not in the schedule.
+    """
+    action = process.actions[action_id]
+    movement = process.find_movement(action_id, movement_id)
+    if movement is None:
+        raise KeyError(f"action {action_id!r} has no movement {movement_id!r}")
+    joints: Dict[str, Dict[str, float]] = {}
+    for robot_id, robot_state in movement.start.robots.items():
+        if robot_state is None:
+            continue
+        given = robot_state.joints
+        if given is None and robot_id == action.robot:
+            given = (assumed if assumed is not None else assumed_start_all(process))[(action_id, movement_id)][0]
+        joints[robot_id] = dict(given or {})
+    if at_end and movement.target is not None:
+        for robot_id, values in movement.target.joints.items():
+            if robot_id in joints:
+                joints[robot_id].update(values)
+    return joints

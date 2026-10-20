@@ -9,7 +9,7 @@ B1–B15) and `process.solutions` (planner results), so `import process` stays f
 
 from __future__ import annotations
 
-from .carry import assumed_joints, assumed_start_all
+from .carry import assumed_joints, assumed_start_all, joints_at
 from .read import read
 from .types import (ACTION_TYPES, BODY_PREFIXES, CONTROLLERS, ENDS_ON, PATHS, Action, ActionType, BodySpec, Process,
                     ProcessError, Holder, LineSpec, Movement, Producer, RobotSpec, RobotState, RobotTarget, SchemaMismatch,
@@ -23,5 +23,5 @@ __all__ = [
     "ACTION_TYPES", "BODY_PREFIXES", "CONTROLLERS", "ENDS_ON", "GRIP", "LIBRARY", "PATHS", "SCHEMA", "TOOL_KINDS",
     "Action", "ActionType", "BodySpec", "Process", "ProcessError", "Holder", "LineSpec", "Movement",
     "Producer", "RobotSpec", "RobotState", "RobotTarget", "SchemaMismatch", "State", "Target", "ToolState", "Writer", "assumed_joints",
-    "assumed_start_all", "content_hash", "process_hashes", "read", "validate", "write", "writer_info",
+    "assumed_start_all", "joints_at", "content_hash", "process_hashes", "read", "validate", "write", "writer_info",
 ]
