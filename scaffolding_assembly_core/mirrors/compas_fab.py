@@ -4,12 +4,15 @@ A compas_fab planning world for one acting robot, filled from a `Scene`.
 The cell and its states come from `cell.CompasFabCell` (acting robot with its tools, other robots as tools, bodies
 by our id), built without visual shapes. Other robots are parked far away while absent or while their base or joints
 are unknown (`parked`). `sync` rebuilds the cell (~2 s) only when a model, body id or geometry
-object changed. `collisions` is compas_fab's own check; `search_check` is a fast copy of it for searches. `lend`
+object changed. `collisions` is compas_fab's own check plus tool against tool (`tool_pairs`); `search_check` is a
+fast copy of both for searches. `lend`
 hands the planner to other code, such as tamp. `set_gui(True)` shows the world in PyBullet's own window (one per
 process) for debugging.
 
 - ! One thread only: create, sync, query and lend a mirror on the same thread.
-- ! Other robots' tool/body pairs already touching at `sync` are allowed for that snapshot (`static_contacts`).
+- ! Every contact is a collision unless the scene allows it (`touches`, a holder), between other robots and bodies too.
+- ! compas_fab allows only whole tools, and another robot is one tool: a contact allowed with any link or tool of
+  another robot allows that whole robot. Such pairs never move while this robot plans: only the start check is coarse.
 - ! compas_fab builds each collision mesh as its convex hull.
 - ! compas_fab only skips a hidden body in its own checks and leaves it where it last stood: `sync` moves it to
   HIDDEN_POSITION.
@@ -78,8 +81,6 @@ class CompasFabMirror:
         self.state: RobotCellState | None = None
         #: Other robots in the scene but parked at the last sync, because their base or joints are unknown.
         self.parked: tuple[str, ...] = ()
-        #: (tool, body) pairs of our ids already touching at the last sync, and so allowed.
-        self.static_contacts: list[tuple[str, str]] = []
         # ? A new world holds no cell: the next sync hands one to it.
         self._cells.forget()
         # Lent since the last sync: the borrower may have left any state, or another cell.
@@ -134,7 +135,6 @@ class CompasFabMirror:
         self._move_hidden_away(state)
         self.state = state
         self._dirty = False
-        self._allow_static_contacts()
 
     def _move_hidden_away(self, state: RobotCellState) -> None:
         """Move every hidden body far away in PyBullet; compas_fab leaves it where the last state put it."""
@@ -144,25 +144,6 @@ class CompasFabMirror:
                     p.resetBasePositionAndOrientation(part, HIDDEN_POSITION, (0.0, 0.0, 0.0, 1.0),
                                                       physicsClientId=self.client.client_id)
 
-    def _allow_static_contacts(self) -> None:
-        """Allow other robots' tool/body pairs already touching now; they can't change while this robot plans.
-
-        ! Never the acting robot's own tools: they move with it, so their contacts are real.
-        """
-        self.static_contacts = []
-        client = self.client
-        for tool, tool_body in client.tools_puids.items():
-            if self.state.tool_states[tool].attached_to_group is not None:
-                continue
-            for body, parts in client.rigid_bodies_puids.items():
-                state = self.state.rigid_body_states[body]
-                # ? A hidden body is not moved by compas_fab, so its parts may sit anywhere: skip it.
-                if state.is_hidden or state.attached_to_link or tool in state.touch_bodies:
-                    continue
-                if any(p.getClosestPoints(tool_body, part, 0.0, physicsClientId=client.client_id) for part in parts):
-                    state.touch_bodies.append(tool)
-                    self.static_contacts.append((tool, body))
-
     @contextmanager
     def lend(self) -> Iterator[PyBulletPlanner]:
         """Hand this world's compas_fab planner to other code (e.g. tamp), with pybullet_planning pointed at it.
@@ -170,6 +151,7 @@ class CompasFabMirror:
         - ! The borrower may leave the world in any state: the mirror counts as changed, and the next `sync` writes
           the full state (and rebuilds the cell if the borrower set its own). Build a `search_check` after it.
         - ! One pybullet_planning user at a time in the whole process (`pp_client`).
+        - ! compas_fab's own check never checks tool against tool (`tool_pairs`): the borrower must, or miss them.
 
         Yields:
             PyBulletPlanner: The planner, its cell and state as of the last `sync`.
@@ -207,6 +189,9 @@ class CompasFabMirror:
     def collisions(self, joints: Mapping[str, float] | None = None, full_report: bool = False) -> list[tuple[str, str]]:
         """What collides with the acting robot or its tools at the synced state, some joints changed.
 
+        compas_fab's check, then each of the acting robot's tools against every other tool (`tool_pairs`), which
+        compas_fab never checks.
+
         Args:
             joints: Values by joint name to check at, or None for the synced state.
             full_report: Find every pair; otherwise stop at the first.
@@ -216,11 +201,34 @@ class CompasFabMirror:
                 "obstacles/tables/A"); a mounted tool by its tool id. Empty if clear.
         """
         state = self.state if joints is None else self.state_at(joints)
+        pairs = []
         try:
-            self.planner.check_collision(state, {"full_report": full_report})
+            self.planner.check_collision(state, {"full_report": full_report})  # ? poses the world at `state`
         except CollisionCheckError as error:
-            return [(self._our_id(a), self._our_id(b)) for a, b in error.collision_pairs]
-        return []
+            pairs = [(self._our_id(a), self._our_id(b)) for a, b in error.collision_pairs]
+            if not full_report:
+                return pairs
+        tools = self.client.tools_puids
+        for a, b in self.tool_pairs():
+            if p.getClosestPoints(tools[a], tools[b], 0.0, physicsClientId=self.client.client_id):
+                pairs.append((a, b))
+                if not full_report:
+                    break
+        return pairs
+
+    def tool_pairs(self) -> list[tuple[str, str]]:
+        """Each shown tool of the acting robot with every other shown tool: the pairs compas_fab leaves unchecked.
+
+        Other robots are tools here, so this is also the acting robot's tools against other robots, and on a robot
+        with two arms one gripper against the other.
+
+        Returns:
+            list[tuple[str, str]]: Tool ids, the acting robot's first.
+        """
+        states = self.state.tool_states
+        shown = [name for name in self.client.tools_puids if not states[name].is_hidden]
+        acting = [name for name in shown if states[name].attached_to_group is not None]
+        return [(a, b) for i, a in enumerate(acting) for b in shown if b != a and (b not in acting or b in acting[i:])]
 
     def search_check(self, joint_names: Sequence[str]) -> SearchCheck:
         """A fast collision check for a search that moves only these joints, from the synced state.
@@ -277,7 +285,7 @@ def _offset(client_id: int, robot: int, link: int, body: int) -> tuple:
 
 
 class SearchCheck:
-    """compas_fab's collision rules for a search over some joints, resolved once and checked fast.
+    """The rules of `CompasFabMirror.collisions` for a search over some joints, resolved once and checked fast.
 
     * Why ours: compas_fab's `check_collision` resets the whole cell and walks every pair on each call
       (3.6 ms vs 0.16 ms here; arm plans ran ~12x slower and hit the search time limit). Replace it once
@@ -325,7 +333,7 @@ class SearchCheck:
                  if not state.tool_states[name].is_hidden}
         parts = {name: [_Part(body, None, name) for body in client.rigid_bodies_puids[name]] for name in bodies}
 
-        # * The pairs compas_fab's check_collision walks (CC.1 to CC.5), with a moving side only.
+        # * The pairs `collisions` checks (compas_fab's CC.1 to CC.5, then `tool_pairs`), with a moving side only.
         disabled = client.unordered_disabled_collisions
         pairs = [(links[a], links[b]) for a, b in combinations(links, 2)
                  if (a in moving or b in moving) and frozenset((a, b)) not in disabled]
@@ -333,7 +341,7 @@ class SearchCheck:
                   if (link in moving or name in carried_tools) and link not in state.tool_states[name].touch_links]
         pairs += [(links[link], part) for link in links for name, body in bodies.items()
                   if (link in moving or name in carried) and link not in body.touch_links for part in parts[name]]
-        for name in carried:
+        for name in sorted(carried):
             for other, body in bodies.items():
                 # ? Two carried bodies once, not twice.
                 if other == name or (other in carried and other < name) or \
@@ -343,6 +351,7 @@ class SearchCheck:
         pairs += [(tool, part) for tool_name, tool in tools.items() for name, body in bodies.items()
                   if (name in carried or tool_name in carried_tools)
                   and body.attached_to_tool != tool_name and tool_name not in body.touch_bodies for part in parts[name]]
+        pairs += [(tools[a], tools[b]) for a, b in mirror.tool_pairs() if a in carried_tools or b in carried_tools]
         #: (body A, body B, getClosestPoints link arguments, names) per pair.
         self._pairs = [(a.body, b.body, {**({"linkIndexA": a.link} if a.link is not None else {}),
                                          **({"linkIndexB": b.link} if b.link is not None else {})}, (a.name, b.name))

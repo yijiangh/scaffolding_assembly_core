@@ -3,8 +3,9 @@ A compas_fab `RobotCell` for one acting robot, built from scenes, and its states
 
 The acting robot is the cell's robot, each of its mounted tools a `ToolModel` attached to the SRDF group ending at
 its flange. Every other robot is one `ToolModel` keyed by its robot id, parked far away while absent; bodies are
-`RigidBody`s keyed by our id, attached when held by the acting robot. `CompasFabMirror` plans on such a cell; a
-viewer draws one built with `visual=True`.
+`RigidBody`s keyed by our id, attached when held by the acting robot. A contact a body may have with any link or
+mounted tool of another robot allows that whole robot: compas_fab allows only whole tools. `CompasFabMirror` plans
+on such a cell; a viewer draws one built with `visual=True`.
 
 - ! `update` rebuilds the cell only when a model, body id or geometry object changed (`scene.same_source`).
 - ! compas_fab builds each collision mesh as its convex hull.
@@ -212,12 +213,15 @@ class CompasFabCell:
         bodies = {key: (snapshot.world_poses[key] if strict else snapshot.world_poses.get(key), body.placement,
                         body.touches, body.enabled)
                   for key, body in snapshot.bodies.items() if body.geometry.collision}
+        # * Another robot is one tool here, its mounted tools included: a contact with one of them is with that robot.
+        owners = {tool.id: key for key, robot in snapshot.robots.items() if key != self.robot_id
+                  for tool in robot.model.tools.values()}
         parked = not strict and (not acting.enabled or not acting.base_tracked)
         return RobotCellState(
             robot_base_frame=Frame(PARKED_POSITION) if parked else frame_from_pose(acting.base),
             robot_configuration=filled(self.cell.zero_full_configuration(), acting.joints),
             tool_states=tool_states,
-            rigid_body_states={key: self._body_state(*placed) for key, placed in bodies.items()})
+            rigid_body_states={key: self._body_state(*placed, owners) for key, placed in bodies.items()})
 
     @property
     def acting_tools(self) -> Dict[str, str]:
@@ -225,7 +229,7 @@ class CompasFabCell:
         return dict(self._acting.flanges) if self._acting is not None else {}
 
     def _body_state(self, pose: Optional[Pose], placement: Union[Pose, Attachment], touches: Tuple[str, ...],
-                    enabled: bool) -> RigidBodyState:
+                    enabled: bool, owners: Mapping[str, str]) -> RigidBodyState:
         """A body's compas_fab state: attached to one of our links, or stationary at its world pose.
 
         Args:
@@ -233,6 +237,7 @@ class CompasFabCell:
             placement: As in the scene.
             touches: As in the scene.
             enabled: As in the scene; a disabled body is hidden, so nothing collides with it.
+            owners: Tool id -> robot id of each other robot's mounted tools.
         """
         own = self.robot_id
         touch_links, touch_bodies = [], []
@@ -246,6 +251,8 @@ class CompasFabCell:
             elif entry.startswith(f"{ROBOTS}/"):
                 # Another robot is one tool: any of its links means the whole robot.
                 touch_bodies.append("/".join(entry.split("/", 2)[:2]))
+            elif entry in owners:
+                touch_bodies.append(owners[entry])
             else:
                 touch_bodies.append(entry)
 
