@@ -4,10 +4,9 @@ A compas_fab planning world for one acting robot, filled from a `Scene`.
 The cell and its states come from `cell.CompasFabCell` (acting robot with its tools, other robots as tools, bodies
 by our id), built without visual shapes. Other robots are parked far away while absent or while their base or joints
 are unknown (`parked`). `sync` rebuilds the cell (~2 s) only when a model, body id or geometry
-object changed. `collisions` is compas_fab's own check plus tool against tool (`tool_pairs`); `search_check` is a
-fast copy of both for searches. `lend`
-hands the planner to other code, such as tamp. `set_gui(True)` shows the world in PyBullet's own window (one per
-process) for debugging.
+object changed. `collisions` is compas_fab's own check plus tool against tool (CC.6, `tool_pairs`); `search_check`
+is a fast copy of both for searches. `lend` hands the planner, CC.6 included, to other code, such as tamp.
+`set_gui(True)` shows the world in PyBullet's own window (one per process) for debugging.
 
 - ! One thread only: create, sync, query and lend a mirror on the same thread.
 - ! Every contact is a collision unless the scene allows it (`touches`, a holder), between other robots and bodies too.
@@ -24,7 +23,8 @@ import time
 from contextlib import contextmanager
 from dataclasses import dataclass
 from itertools import combinations
-from typing import TYPE_CHECKING, Callable, Iterator, Mapping, Optional, Sequence
+from types import MethodType
+from typing import TYPE_CHECKING, Callable, Iterable, Iterator, Mapping, Optional, Sequence
 
 import pybullet as p
 from compas_fab.backends import CollisionCheckError, PyBulletClient, PyBulletPlanner
@@ -39,7 +39,7 @@ from .compas import filled, subtree
 from .pp_client import pp_client
 
 if TYPE_CHECKING:
-    from compas_fab.robots import RigidBody
+    from compas_fab.robots import RigidBody, ToolState
     from compas_robots.model import Link
 
 
@@ -76,7 +76,7 @@ class CompasFabMirror:
             self.close()
         #: Whether PyBullet's own window shows this world.
         self.client, self.gui = client, gui
-        self.planner = PyBulletPlanner(self.client)
+        self.planner = with_tool_pairs(PyBulletPlanner(self.client))
         #: The state as last synced (None before the first sync).
         self.state: RobotCellState | None = None
         #: Other robots in the scene but parked at the last sync, because their base or joints are unknown.
@@ -151,7 +151,7 @@ class CompasFabMirror:
         - ! The borrower may leave the world in any state: the mirror counts as changed, and the next `sync` writes
           the full state (and rebuilds the cell if the borrower set its own). Build a `search_check` after it.
         - ! One pybullet_planning user at a time in the whole process (`pp_client`).
-        - ! compas_fab's own check never checks tool against tool (`tool_pairs`): the borrower must, or miss them.
+        - * Its `check_collision` adds CC.6 (`with_tool_pairs`), also when compas_fab's own IK and planners call it.
 
         Yields:
             PyBulletPlanner: The planner, its cell and state as of the last `sync`.
@@ -189,8 +189,8 @@ class CompasFabMirror:
     def collisions(self, joints: Mapping[str, float] | None = None, full_report: bool = False) -> list[tuple[str, str]]:
         """What collides with the acting robot or its tools at the synced state, some joints changed.
 
-        compas_fab's check, then each of the acting robot's tools against every other tool (`tool_pairs`), which
-        compas_fab never checks.
+        compas_fab's check, then each of the acting robot's tools against every other tool (CC.6, `tool_pairs`),
+        which compas_fab never checks.
 
         Args:
             joints: Values by joint name to check at, or None for the synced state.
@@ -198,23 +198,15 @@ class CompasFabMirror:
 
         Returns:
             list[tuple[str, str]]: Colliding pairs as our ids, e.g. ("robots/a200-0806/left_ur_arm_wrist_3_link",
-                "obstacles/tables/A"); a mounted tool by its tool id. Empty if clear.
+                "obstacles/tables/A"); a mounted tool by its tool id, another robot by its robot id, e.g.
+                ("tools/cindy/AT3L", "robots/alice"). Empty if clear.
         """
         state = self.state if joints is None else self.state_at(joints)
-        pairs = []
         try:
-            self.planner.check_collision(state, {"full_report": full_report})  # ? poses the world at `state`
+            self.planner.check_collision(state, {"full_report": full_report})
         except CollisionCheckError as error:
-            pairs = [(self._our_id(a), self._our_id(b)) for a, b in error.collision_pairs]
-            if not full_report:
-                return pairs
-        tools = self.client.tools_puids
-        for a, b in self.tool_pairs():
-            if p.getClosestPoints(tools[a], tools[b], 0.0, physicsClientId=self.client.client_id):
-                pairs.append((a, b))
-                if not full_report:
-                    break
-        return pairs
+            return [(self._our_id(a), self._our_id(b)) for a, b in error.collision_pairs]
+        return []
 
     def tool_pairs(self) -> list[tuple[str, str]]:
         """Each shown tool of the acting robot with every other shown tool: the pairs compas_fab leaves unchecked.
@@ -225,10 +217,7 @@ class CompasFabMirror:
         Returns:
             list[tuple[str, str]]: Tool ids, the acting robot's first.
         """
-        states = self.state.tool_states
-        shown = [name for name in self.client.tools_puids if not states[name].is_hidden]
-        acting = [name for name in shown if states[name].attached_to_group is not None]
-        return [(a, b) for i, a in enumerate(acting) for b in shown if b != a and (b not in acting or b in acting[i:])]
+        return tool_pairs(self.state.tool_states, self.client.tools_puids)
 
     def search_check(self, joint_names: Sequence[str]) -> SearchCheck:
         """A fast collision check for a search that moves only these joints, from the synced state.
@@ -258,6 +247,80 @@ class CompasFabMirror:
             else:
                 self.client._cache_dir.cleanup()
             self.client.client_id = None
+
+
+# --- --- --- --- --- CC.6: TOOLS AGAINST TOOLS --- --- --- --- ---
+
+def tool_pairs(tool_states: Mapping[str, ToolState], tools: Iterable[str]) -> list[tuple[str, str]]:
+    """Each shown tool of the acting robot with every other shown tool, once: the pairs compas_fab leaves unchecked.
+
+    Args:
+        tool_states: Tool id -> its state; the acting robot's tools have `attached_to_group` set.
+        tools: The tool ids in the world, in the order to check them.
+
+    Returns:
+        list[tuple[str, str]]: Tool ids, the acting robot's first. ? Two other robots never pair up: neither moves
+            while the acting robot plans.
+    """
+    shown = [name for name in tools if not tool_states[name].is_hidden]
+    acting = [name for name in shown if tool_states[name].attached_to_group is not None]
+    return [(a, b) for i, a in enumerate(acting) for b in shown if b != a and (b not in acting or b in acting[i:])]
+
+
+def _check_collision_with_tool_pairs(planner: PyBulletPlanner, state: RobotCellState,
+                                     options: Optional[dict] = None) -> None:
+    """compas_fab's `check_collision` (CC.1 to CC.5), then CC.6: the acting robot's tools against the other tools.
+
+    The options are compas_fab's; its `_skip_cc2` (no tool checks) skips CC.6 too.
+
+    - ! Never prints, even with `verbose`: tamp counts the printed "CC.<n>" lines for CC.1 to CC.5 only.
+
+    Args:
+        planner: The planner whose world to check.
+        state: The state to check, as for compas_fab's `check_collision`.
+        options: compas_fab's options, e.g. {"full_report": True}.
+
+    Raises:
+        CollisionCheckError: If anything collides: compas_fab's messages and pairs first, then the CC.6 ones, e.g.
+            "CC.6 between tool 'tools/cindy/AT3L' and tool 'robots/alice' - COLLISION" with the two tool models.
+    """
+    options = options or {}
+    full_report = options.get("full_report", False)
+    messages, pairs = [], []
+    try:
+        # ! The class's method, never `planner.check_collision`: that is this function again.
+        PyBulletPlanner.check_collision(planner, state, options)  # ? poses the world at `state`
+    except CollisionCheckError as error:
+        if not full_report:
+            raise
+        messages, pairs = [error.message], list(error.collision_pairs)
+    if not options.get("_skip_cc2", False):
+        client = planner.client
+        tools = client.tools_puids
+        for a, b in tool_pairs(client.robot_cell_state.tool_states, tools):
+            if p.getClosestPoints(tools[a], tools[b], 0.0, physicsClientId=client.client_id):
+                messages.append(f"CC.6 between tool '{a}' and tool '{b}' - COLLISION")
+                pairs.append((client.robot_cell.tool_models[a], client.robot_cell.tool_models[b]))
+                if not full_report:
+                    break
+    if messages:
+        raise CollisionCheckError("\n".join(messages), pairs)
+
+
+def with_tool_pairs(planner: PyBulletPlanner) -> PyBulletPlanner:
+    """Make this planner's `check_collision` also check tools against tools (CC.6, `_check_collision_with_tool_pairs`).
+
+    * Bound on this one object: compas_fab's own IK and planners call `check_collision` on the planner, so a borrower
+      (`CompasFabMirror.lend`) gets CC.6 too.
+
+    Args:
+        planner: The planner to change.
+
+    Returns:
+        PyBulletPlanner: The same planner.
+    """
+    planner.check_collision = MethodType(_check_collision_with_tool_pairs, planner)
+    return planner
 
 
 # --- --- --- --- --- FAST CHECKS FOR SEARCHES --- --- --- --- ---

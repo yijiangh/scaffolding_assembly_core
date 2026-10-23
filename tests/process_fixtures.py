@@ -21,8 +21,15 @@ TETRA = TriMesh.from_arrays([[0, 0, 0], [0.1, 0, 0], [0, 0.1, 0], [0, 0, 0.1]],
                             [[0, 2, 1], [0, 1, 3], [0, 3, 2], [1, 2, 3]])
 
 
-def _arm(side: str) -> str:
-    """URDF text of one arm: two revolute joints, then a fixed flange `<side>_tool0`."""
+def _arm(side: str, reach: float = 0.0) -> str:
+    """URDF text of one arm: two revolute joints, then a fixed flange `<side>_tool0`.
+
+    Args:
+        side: "left" or "right".
+        reach: How far `<side>_joint2` sits from `<side>_joint1` along X, so the flange swings around the base;
+            0 writes no origin at all (the URDF text the other tests use).
+    """
+    origin = f'<origin xyz="{reach} 0 0"/>' if reach else ""
     return f"""
   <link name="{side}_link1"/>
   <link name="{side}_link2"/>
@@ -32,7 +39,7 @@ def _arm(side: str) -> str:
     <axis xyz="0 0 1"/><limit lower="-3" upper="3" effort="1" velocity="1"/>
   </joint>
   <joint name="{side}_joint2" type="revolute">
-    <parent link="{side}_link1"/><child link="{side}_link2"/>
+    <parent link="{side}_link1"/><child link="{side}_link2"/>{origin}
     <axis xyz="0 1 0"/><limit lower="-3" upper="3" effort="1" velocity="1"/>
   </joint>
   <joint name="{side}_tool0_joint" type="fixed">
@@ -40,13 +47,15 @@ def _arm(side: str) -> str:
   </joint>"""
 
 
-def write_robot_files(folder: Path, mesh: str = "meshes/base.obj", write_mesh_file: bool = True) -> tuple[Path, Path]:
+def write_robot_files(folder: Path, mesh: str = "meshes/base.obj", write_mesh_file: bool = True,
+                      reach: float = 0.0) -> tuple[Path, Path]:
     """Write a fake two-arm robot: root base_footprint, a passive wheel, two arms, one base mesh.
 
     Args:
         folder: Where to write `fake.urdf`, `fake.srdf` and the mesh.
         mesh: The base link's mesh reference, as written in the URDF.
         write_mesh_file: Also write the mesh file (at `folder/mesh`).
+        reach: Each arm's reach (`_arm`); 0 keeps the flanges at the base.
 
     Returns:
         tuple[Path, Path]: The URDF and SRDF.
@@ -67,7 +76,7 @@ def write_robot_files(folder: Path, mesh: str = "meshes/base.obj", write_mesh_fi
   </joint>
   <joint name="wheel_joint" type="continuous">
     <parent link="base_link"/><child link="wheel_link"/><axis xyz="0 1 0"/>
-  </joint>{_arm("left")}{_arm("right")}
+  </joint>{_arm("left", reach)}{_arm("right", reach)}
 </robot>
 """)
     srdf = folder / "fake.srdf"
