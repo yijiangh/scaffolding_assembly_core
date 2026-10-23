@@ -5,7 +5,7 @@ What follows from a state and the process without being stored (format §8): whe
   otherwise the pose in `State.poses`, else its assembly pose. A mounted half follows its bar.
 - Allowed contacts: a tool with the whole part it is on, a half with its bar, a pending or engaged mate's halves with
   each other and with each other's bar, a ground-mated half and every robot's ground links with every ground body.
-  Mount contacts belong to the robot model (`RobotModel`).
+  What a tool may touch on its own arm belongs to the robot model (`RobotModel.tool_touches`).
 """
 
 from __future__ import annotations
@@ -96,7 +96,7 @@ def mate_statuses(process: Process, state: State) -> Dict[Mate, str]:
 
 
 def allowed_contacts(process: Process, state: State) -> Set[Tuple[str, str]]:
-    """Every allowed contact in a state, each pair sorted (mount contacts excepted: they are the robot model's).
+    """Every allowed contact in a state, each pair sorted (a tool's own arm links excepted: they are the robot model's).
 
     - A tool on a body may touch that body's whole part: its bar and every half mounted on it.
     - A half may touch its bar; the halves of a pending or engaged mate each other, and each other's bar.

@@ -86,20 +86,20 @@ class CompasFabCell:
 
     # --- --- --- --- --- BUILD --- --- --- --- ---
 
-    def update(self, snapshot: Scene) -> Optional[str]:
-        """Rebuild the cell if the snapshot's models, body ids or geometry differ from what it was built from.
+    def update(self, scene: Scene) -> Optional[str]:
+        """Rebuild the cell if the scene's models, body ids or geometry differ from what it was built from.
 
         Args:
-            snapshot: The world; it is not modified.
+            scene: The world; it is not modified.
 
         Returns:
             str | None: Why the cell was rebuilt (e.g. "first build"), or None if it was kept.
 
         Raises:
-            KeyError: If the acting robot is not in the snapshot.
+            KeyError: If the acting robot is not in the scene.
             ValueError: If the acting robot has no SRDF.
         """
-        built = self._sources(snapshot)
+        built = self._sources(scene)
         if self._same(built):
             return None
         why = self._rebuild_reason(built)
@@ -110,12 +110,12 @@ class CompasFabCell:
         """Count the cell as unknown: the next `update` rebuilds it (models already loaded are kept)."""
         self._built = None
 
-    def _sources(self, snapshot: Scene) -> tuple:
-        """(acting model, other models by id, geometry by id) of a snapshot: what a cell is built from."""
-        acting = snapshot.robots[self.robot_id]
-        others = {key: robot.model for key, robot in snapshot.robots.items() if key != self.robot_id}
+    def _sources(self, scene: Scene) -> tuple:
+        """(acting model, other models by id, geometry by id) of a scene: what a cell is built from."""
+        acting = scene.robots[self.robot_id]
+        others = {key: robot.model for key, robot in scene.robots.items() if key != self.robot_id}
         # ? Disabled bodies are built too, but hidden: switching them on and off never rebuilds the cell.
-        geometries = {key: body.geometry for key, body in snapshot.bodies.items() if body.geometry.collision}
+        geometries = {key: body.geometry for key, body in scene.bodies.items() if body.geometry.collision}
         return acting.model, others, geometries
 
     def _same(self, built: tuple) -> bool:
@@ -170,11 +170,11 @@ class CompasFabCell:
 
     # --- --- --- --- --- STATES --- --- --- --- ---
 
-    def state(self, snapshot: Scene, strict: bool = True) -> RobotCellState:
-        """The snapshot as a state of the current cell (call `update` with it first).
+    def state(self, scene: Scene, strict: bool = True) -> RobotCellState:
+        """The scene as a state of the current cell (call `update` with it first).
 
         Args:
-            snapshot: The world; it is not modified.
+            scene: The world; it is not modified.
             strict: Planning: the acting robot must be present with a tracked base and known joints. Not strict
                 (drawing): an acting robot that is absent or whose base is not tracked is parked far away, and its
                 unknown joints are 0.
@@ -185,7 +185,7 @@ class CompasFabCell:
         Raises:
             ValueError: If `strict` and the acting robot can't be planned for (`RobotObject.acting_problems`).
         """
-        acting = snapshot.robots[self.robot_id]
+        acting = scene.robots[self.robot_id]
         problems = acting.acting_problems()
         if strict and problems:
             raise ValueError(f"cannot plan for {self.robot_id}: {'; '.join(problems)}")
@@ -195,7 +195,7 @@ class CompasFabCell:
                                       attachment_frame=Frame.worldXY())
                        for key in self._acting.tools}
         parked_others = []
-        for key, robot in snapshot.robots.items():
+        for key, robot in scene.robots.items():
             if key == self.robot_id:
                 continue
             zero = self.cell.tool_models[key].zero_configuration()
@@ -207,14 +207,14 @@ class CompasFabCell:
                 tool_states[key] = ToolState(frame=Frame(PARKED_POSITION), configuration=zero)
                 if robot.enabled:
                     parked_others.append(key)
-        #: Other robots in the last snapshot given to `state`, parked because their base or joints are unknown.
+        #: Other robots in the last scene given to `state`, parked because their base or joints are unknown.
         self.parked = tuple(parked_others)
         # ? Strict: a body without a world pose (attached to a missing parent) is an error (KeyError).
-        bodies = {key: (snapshot.world_poses[key] if strict else snapshot.world_poses.get(key), body.placement,
+        bodies = {key: (scene.world_poses[key] if strict else scene.world_poses.get(key), body.placement,
                         body.touches, body.enabled)
-                  for key, body in snapshot.bodies.items() if body.geometry.collision}
+                  for key, body in scene.bodies.items() if body.geometry.collision}
         # * Another robot is one tool here, its mounted tools included: a contact with one of them is with that robot.
-        owners = {tool.id: key for key, robot in snapshot.robots.items() if key != self.robot_id
+        owners = {tool.id: key for key, robot in scene.robots.items() if key != self.robot_id
                   for tool in robot.model.tools.values()}
         parked = not strict and (not acting.enabled or not acting.base_tracked)
         return RobotCellState(

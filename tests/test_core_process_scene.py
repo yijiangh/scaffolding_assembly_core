@@ -31,7 +31,7 @@ def _movement(process, movement_id):
 
 def test_scene_at_robots_and_held_body(process):
     """An absent robot is disabled, unknown joints are unmeasured; an attached bar and its halves follow its link."""
-    scene = process.scene_at(_movement(process, "B1_M0_mount"))
+    scene = process.scene_at(_movement(process, "B1_M0_place_bar"))
     alice, cindy = scene.robots["robots/alice"], scene.robots["robots/cindy"]
     assert not alice.enabled and cindy.enabled
     assert cindy.unmeasured == frozenset(cindy.model.movable_joints) and cindy.acting_problems()
@@ -150,7 +150,7 @@ def test_retarget_swaps_the_robot_only(process):
 
 def test_seeded_fills_in_what_the_process_leaves_open(process):
     """Cindy's joints are null at her mount: seeded, she can be planned for; known joints keep their value."""
-    scene = process.scene_at(_movement(process, "B1_M0_mount"))
+    scene = process.scene_at(_movement(process, "B1_M0_place_bar"))
     cindy = scene.robots["robots/cindy"]
     assert cindy.acting_problems()
     seeded(scene, "robots/cindy", {"left_joint1": 0.4})

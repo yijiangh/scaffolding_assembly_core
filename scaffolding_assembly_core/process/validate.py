@@ -209,7 +209,7 @@ class _Checker:
                 self.add(3, movement_id, f"movement id {movement_id!r} is used {count} times")
 
     def check_robots_and_tools(self) -> None:
-        """Robot files and links, tool mounts and kinds, mount contacts (A4, A6, A7, A10)."""
+        """Robot files and links, tool mounts and kinds (A4, A6, A7, A10)."""
         process = self.process
         mounts: Dict[str, List[str]] = {tool: [] for tool in process.tools}
         for robot_id, robot in process.robots.items():

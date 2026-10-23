@@ -95,7 +95,7 @@ def _matches(entry: str, object_id: str) -> bool:
 
 
 class PyBulletMirror:
-    """A private PyBullet world that follows the scene snapshots given to `sync`."""
+    """A private PyBullet world that follows the scenes given to `sync`."""
 
     def __init__(self) -> None:
         """Connect a new world without a window, empty until the first `sync`."""
@@ -121,11 +121,11 @@ class PyBulletMirror:
         self._built: dict[str, _Built] = {}
         # PyBullet body id -> our id.
         self._owner: dict[int, str] = {}
-        # Our id -> its `touches`, from the last synced snapshot.
+        # Our id -> its `touches`, from the last synced scene.
         self._touches: dict[str, tuple[str, ...]] = {}
-        # Ids of disabled bodies and robots in the last synced snapshot: built, but never collide.
+        # Ids of disabled bodies and robots in the last synced scene: built, but never collide.
         self._disabled: set[str] = set()
-        # Robot id -> why it can't be planned for (`RobotObject.acting_problems`), from the last synced snapshot.
+        # Robot id -> why it can't be planned for (`RobotObject.acting_problems`), from the last synced scene.
         self._problems: dict[str, list[str]] = {}
         # (shape, built concave) -> collision shape id, shared between bodies.
         # ? Keyed by the shape, not `id(obj)` (reused after free); equal primitives share one.
@@ -148,26 +148,26 @@ class PyBulletMirror:
 
     # --- --- --- --- --- SYNC --- --- --- --- ---
 
-    def sync(self, snapshot: Scene) -> None:
-        """Make this world match a snapshot: remove, (re)build and move only what changed.
+    def sync(self, scene: Scene) -> None:
+        """Make this world match a scene: remove, (re)build and move only what changed.
 
         Args:
-            snapshot: The world to copy. It is not modified.
+            scene: The world to copy. It is not modified.
         """
         # Our id -> (source, concave, pose) for everything that should exist.
         wanted: dict[str, tuple[Geometry | RobotModel, bool, Pose]] = {}
         touches: dict[str, tuple[str, ...]] = {}
-        for object_id, robot in snapshot.robots.items():
+        for object_id, robot in scene.robots.items():
             wanted[object_id] = (robot.model, False, robot.base)
-        for body_id, body in snapshot.bodies.items():
+        for body_id, body in scene.bodies.items():
             # ! Concave only when free and unmeasured: Bullet can't collide two concave meshes, and those others move.
             concave = (isinstance(body.placement, Pose) and not body_id.startswith(f"{TRACKED}/")
                        and any(not mesh.convex for mesh in body.geometry.collision))
-            wanted[body_id] = (body.geometry, concave, snapshot.world_poses[body_id])
+            wanted[body_id] = (body.geometry, concave, scene.world_poses[body_id])
             touches[body_id] = body.touches
-        self._disabled = ({body_id for body_id, body in snapshot.bodies.items() if not body.enabled}
-                          | {object_id for object_id, robot in snapshot.robots.items() if not robot.enabled})
-        self._problems = {object_id: robot.acting_problems() for object_id, robot in snapshot.robots.items()}
+        self._disabled = ({body_id for body_id, body in scene.bodies.items() if not body.enabled}
+                          | {object_id for object_id, robot in scene.robots.items() if not robot.enabled})
+        self._problems = {object_id: robot.acting_problems() for object_id, robot in scene.robots.items()}
         self._touches = touches
 
         # * Remove everything gone or to be rebuilt first, so no freed PyBullet id is still in our tables.
@@ -184,13 +184,13 @@ class PyBulletMirror:
             if built is None:
                 self._build(object_id, source, concave, pose)
             # ? Robots are re-posed every sync (cheap): planners move them around while searching.
-            elif pose != built.pose or object_id in snapshot.robots:
+            elif pose != built.pose or object_id in scene.robots:
                 for body in built.bodies:
                     p.resetBasePositionAndOrientation(body, pose.position, pose.orientation,
                                                       physicsClientId=self.client_id)
                 built.pose = pose
 
-        for object_id, robot in snapshot.robots.items():
+        for object_id, robot in scene.robots.items():
             built = self._built[object_id]
             for name, value in robot.joints.items():
                 # ? Joints the URDF lacks are skipped silently; whoever measures them warns.

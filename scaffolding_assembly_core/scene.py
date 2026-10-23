@@ -50,7 +50,7 @@ class Body:
         geometry: Its shape. ! Assign a new one to change it; never edit it in place.
         placement: A world pose, or an attachment to a robot link or another body.
         touches: Ids allowed to touch it: bodies, "robots/<name>" (whole robot), "robots/<name>/<link>",
-            mounted tools ("tools/AT3L"). Either side may list the other.
+            mounted tools ("tools/cindy/AT3L"). Either side may list the other.
         label: Display text, e.g. in collision messages. Empty: use the id.
         color: (r, g, b, a) from 0 to 1 for the 3D view, or None for grey.
         enabled: False: never collides and is not drawn, but mirrors keep it built, so turning it back on is
@@ -176,7 +176,7 @@ Part = Tuple[str, "Geometry", Pose]
 def robot_parts(robot: RobotObject, poses: Optional[Mapping[str, Pose]] = None) -> Iterator[Part]:
     """What to draw of one robot: each link that has shapes, and each mounted tool at its flange.
 
-    Ids are link ids ("robots/cindy/left_ur_arm_wrist_3_link") and tool ids ("tools/AT3L").
+    Ids are link ids ("robots/cindy/left_ur_arm_wrist_3_link") and tool ids ("tools/cindy/AT3L").
 
     Args:
         robot: The robot, enabled or not (callers skip absent ones).

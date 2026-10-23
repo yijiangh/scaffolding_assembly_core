@@ -11,8 +11,9 @@ from scaffolding_assembly_core.geometry import BoxShape, CylinderShape, Geometry
 from scaffolding_assembly_core.kinematics import link_pose
 from scaffolding_assembly_core.robot import Tool
 from scaffolding_assembly_core.process.meshes import write_mesh
+from scaffolding_assembly_core.process.version import SCHEMA
 
-WRITER = Writer(2, "design_io", "test", False)
+WRITER = Writer(SCHEMA, "process_io", "test", False)
 #: Joints a state must list for the fake robot (the wheel is passive, the tool0 joints fixed).
 JOINTS = ("left_joint1", "left_joint2", "right_joint1", "right_joint2")
 
@@ -103,13 +104,13 @@ def rounded(pose: Pose) -> Pose:
 
 
 def build_process(folder: Path) -> Process:
-    """A small schema 2 process in memory that passes every file and plan check; robot files go to `folder/source/`.
+    """A small schema 2.1 process in memory that passes every file and plan check; robot files go to `folder/source/`.
 
-    * The plan: Cindy mounts, grasps and inserts B1 on its ground half (G1 on WG0); Alice closes her gripper on the
-      built B1 before Cindy ungrasps and retreats, so B1 has two holders; Cindy mounts B2 from a rack and inserts its
-      male half J1 into B1's female half; Alice lets go once B2 is built.
+    * The plan: the operator places B1 in Cindy's tools and Cindy inserts it on its ground half (G1 on WG0); Alice
+      closes her gripper on the built B1 before Cindy ungrasps and retreats, so B1 has two holders; the operator places
+      B2 from a rack and Cindy inserts its male half J1 into B1's female half; Alice lets go once B2 is built.
     * Covers: an absent robot, unknown joints and an unknown base, a staged bar with a pose, mounts and mates, parts and
-      markers, mount contacts, ground links, a producer, a manual step, tool moves, an insert with a drive and a line,
+      markers, ground links, a producer, a manual step, tool moves, an insert with a drive and a line,
       a tool-only ungrasp, a retreat with `target: null`, a support gripper on its bar, a mesh shared by three bodies,
       primitives with origins, notes.
 
@@ -186,7 +187,7 @@ def build_process(folder: Path) -> Process:
     b1_joint = Action(
         id="B1_J_joint", type="bar_jointing", robot="robots/cindy", bar="bars/B1", ground=("ground/WG0",),
         movements=(
-            Movement(id="B1_M0_mount", ends_on="operator", label="operator mounts B1",
+            Movement(id="B1_M0_place_bar", ends_on="operator", label="operator places B1",
                      start=state(cindy_at(None), None, ToolState(None, None), grip_open, {}),
                      target=Target(attached=held_c, on={"tools/cindy/AT3L": "joints/G1_ground"})),
             Movement(id="B1_M1_grasp", ends_on="tools", start=state(cindy_at(joints(0.25)), None, on_g1_open, grip_open,
@@ -228,7 +229,7 @@ def build_process(folder: Path) -> Process:
     b2_joint = Action(
         id="B2_J_joint", type="bar_jointing", robot="robots/cindy", bar="bars/B2",
         movements=(
-            Movement(id="B2_M0_mount", ends_on="operator",
+            Movement(id="B2_M0_place_bar", ends_on="operator",
                      start=state(cindy_at(joints(0.0)), alice_at(joints(1.0)), released, grip_on_b1, held_a,
                                  ("bars/B1",)),
                      target=Target(attached=b2_held, on={"tools/cindy/AT3L": "joints/J1_male"})),

@@ -58,13 +58,13 @@ def test_visual_cell_keeps_visual_shapes(process):
 def test_strict_state_refuses_what_a_drawing_parks(process):
     """Unknown joints: strict raises; a drawing state uses 0. Absent robots are parked; held bodies attached."""
     cells = CompasFabCell("robots/cindy", visual=True)
-    mount = process.scene_at(_movement(process, "B1_M0_mount"))  # Cindy's joints unknown, Alice absent
-    cells.update(mount)
+    placing = process.scene_at(_movement(process, "B1_M0_place_bar"))  # Cindy's joints unknown, Alice absent
+    cells.update(placing)
     with pytest.raises(ValueError, match="joints not known"):
-        cells.state(mount)
-    state = cells.state(mount, strict=False)
+        cells.state(placing)
+    state = cells.state(placing, strict=False)
     assert list(state.tool_states["robots/alice"].frame.point) == list(PARKED_POSITION)
-    assert state.rigid_body_states["bars/B1"].is_hidden  # not mounted yet
+    assert state.rigid_body_states["bars/B1"].is_hidden  # not placed yet
 
     insert = process.scene_at(_movement(process, "B1_M2_insert"))
     state = cells.state(insert)

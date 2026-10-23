@@ -136,7 +136,7 @@ def test_content_hash_ignores_writer_and_formatting(tmp_path: Path):
     path = tmp_path / "out" / "actions" / "B1_J_joint.json"
     before = content_hash(path)
     data = json.loads(path.read_text())
-    data["writer"] = {"schema": 2.1, "library": "design_io", "commit": "elsewhere", "dirty": True}
+    data["writer"] = {"schema": 2.1, "library": "process_io", "commit": "elsewhere", "dirty": True}
     data["movements"][2]["line"]["robots/cindy/left_tool0"]["distance"] = 0.015 + 1e-15
     path.write_text(json.dumps(data))
     assert content_hash(path) == before

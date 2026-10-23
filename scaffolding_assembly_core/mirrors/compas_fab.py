@@ -44,7 +44,7 @@ if TYPE_CHECKING:
 
 
 class CompasFabMirror:
-    """A compas_fab PyBullet world planning for one robot, following the snapshots given to `sync`."""
+    """A compas_fab PyBullet world planning for one robot, following the scenes given to `sync`."""
 
     def __init__(self, robot_id: str, log: Callable[[str], None] | None = None) -> None:
         """Connect an empty world without a window; the first `sync` loads everything (slow).
@@ -105,30 +105,30 @@ class CompasFabMirror:
 
     # --- --- --- --- --- SYNC --- --- --- --- ---
 
-    def sync(self, snapshot: Scene) -> None:
-        """Make the world match a snapshot: rebuild the cell if its models changed, then set the state.
+    def sync(self, scene: Scene) -> None:
+        """Make the world match a scene: rebuild the cell if its models changed, then set the state.
 
         Args:
-            snapshot: The world to copy. It is not modified.
+            scene: The world to copy. It is not modified.
 
         Raises:
-            KeyError: If the acting robot is not in the snapshot.
+            KeyError: If the acting robot is not in the scene.
             ValueError: If it can't be planned for (`RobotObject.acting_problems`), or has no SRDF.
         """
-        acting = snapshot.robots[self.robot_id]
+        acting = scene.robots[self.robot_id]
         problems = acting.acting_problems()
         if problems:
             raise ValueError(f"cannot plan for {self.robot_id}: {'; '.join(problems)}")
         if self._dirty and self.client.robot_cell is not self.cell:
             self._cells.forget()  # the borrower set a cell of its own
         started = time.monotonic()
-        why = self._cells.update(snapshot)
+        why = self._cells.update(scene)
         if why is not None:
             self.planner.set_robot_cell(self.cell)
             if self._log is not None:
                 self._log(f"rebuilt the planning cell for {self.robot_id} in {time.monotonic() - started:.1f} s; "
                           f"why: {why}")
-        state = self._cells.state(snapshot)
+        state = self._cells.state(scene)
         self.parked = self._cells.parked
         # * Always the full state: after `lend` nothing in the world can be trusted.
         self.planner.set_robot_cell_state(state)

@@ -156,7 +156,7 @@ class State:
 
     Attributes:
         robots: Every robot; None = not in the scene.
-        present: Bars and ground in the scene; halves are present with their bar, obstacles always.
+        present: Bars, ground and obstacles in the scene; halves are present with their bar.
         attached: Bar -> the robot links holding it, the first one setting its pose while it is not built.
         built: Bars fixed in the structure: they take their assembly pose.
         poses: World poses of present bars that are neither built nor attached, where away from the assembly pose.

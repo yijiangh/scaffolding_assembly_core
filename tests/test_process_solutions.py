@@ -26,7 +26,7 @@ def _solution(process: Process) -> Solution:
     """A solution of B2_J_joint: two solved movements that chain, one keyframe, one not planned."""
     names = tuple(joints(0.0))
     return Solution("B2_J_joint", solved_against(process, "B2_J_joint"), PLANNER, {
-        "B2_M0_mount": MovementResult("not_planned"),
+        "B2_M0_place_bar": MovementResult("not_planned"),
         "B2_M1_grasp": MovementResult("keyframe_only", bases={"robots/cindy": Pose((1.0, 0.0, 0.0))},
                                       start={"robots/cindy": joints(0.0)}, end={"robots/cindy": joints(0.0)}),
         "B2_M2_transfer": MovementResult(
@@ -45,7 +45,7 @@ def test_write_then_read(process):
     assert read_solutions(process) == {"B2_J_joint": solution}
     assert not is_stale(process, solution) and solution_warnings(process, read_solutions(process)) == []
     raw = json.loads(path.read_text())
-    assert raw["movements"]["B2_M0_mount"] == {"status": "not_planned"}
+    assert raw["movements"]["B2_M0_place_bar"] == {"status": "not_planned"}
     assert raw["format"] == "husky_process/solution"
     assert raw["solved_against"]["process"] == solution.solved_against.process
 

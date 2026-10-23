@@ -221,7 +221,7 @@ the structure by hand at its place in the schedule (absent before it, built afte
    measurements at execution. Planning mirrors park other robots whose base or joints are `null`;
    `scenes.seeded` fills in the robot being planned for.
 4. `target: null` means "end where the next movement starts".
-5. `attached` and `built` may change within a movement; start and target say which: a manual mount or a grasp
+5. `attached` and `built` may change within a movement; start and target say which: the operator placing it or a grasp
    attaches the bar, an insert ends with it built, an ungrasp ends with it no longer attached, an untighten ends with
    it no longer built.
 6. The process says what happens; the controller says how: motor start order, streaming rate, gains, force, stall
@@ -232,7 +232,7 @@ the structure by hand at its place in the schedule (absent before it, built afte
 | Operation | Bar at start | Arms | Tool part | Ends on | Bar at end |
 |---|---|---|---|---|---|
 | Grasp | attached (resting in the tools), not built | none | grip → closed | stall | attached, not built |
-| Insert | attached, not built | `linear`, `coupled`, `compliant`, forward | drive `tighten` | stall | attached and **built**: Cindy is frozen |
+| Insert | attached, not built | `linear`, `coupled`, `compliant`, forward | drive `tighten` | stall | attached and **built**: Cindy stays still |
 | Ungrasp, after an insert | attached and built | Form A: `linear`, `compliant`, back. Form B: none, then a careful retreat | grip → open, and drive `loosen` to back the jointing screw off | timeout | built, **no longer attached** |
 | Untighten, to remove a bar | attached and built | Form A: `linear`, `coupled`, `compliant`, back. Form B: none, then a retreat that moves the bar | drive `loosen` | timeout | attached, **no longer built** |
 
@@ -332,11 +332,11 @@ mate, not the tool. A `loosen` drive leaves the bar built, unless the target cle
 | `attached` | `built` | Meaning | The robot holding it |
 |---|---|---|---|
 | yes | no | Carried: the bar follows the robot | Moves freely, carrying it |
-| yes | yes | Fixed and held (after an insert, while a support robot grips it, before an untighten) | Frozen, except in the compliant movement that releases it |
+| yes | yes | Fixed and held (after an insert, while a support robot grips it, before an untighten) | Held still, except in the compliant movement that releases it |
 | no | yes | Part of the structure | — |
 | no | no | Staged: its pose is in `State.poses`; without one it floats at its assembly pose (warning) | — |
 
-- `attached` means a robot holds the bar: set when a grip closes on it or the operator mounts it, cleared when the grip
+- `attached` means a robot holds the bar: set when a grip closes on it or the operator places it in the tools, cleared when the grip
   opens. Several holders: one robot's flanges moving `coupled` for an unbuilt bar (Cindy's left and right); different
   robots for a built bar (Cindy and Alice). Only bars are attached; halves follow by mount.
 - `built` means the bar is fixed in the structure: set when one of its halves is mated (the end of an insert), cleared
@@ -359,7 +359,7 @@ mate, not the tool. A `loosen` drive leaves the bar built, unless the target cle
 | On | tool → body | No: collision information only | `on` in `State.tools` |
 | Mated | half ↔ half, or ground half ↔ ground | No | `mates` in `process.json` |
 
-`on` is set by the target of the movement that brings the tool to the body (the operator's mount, or a support's
+`on` is set by the target of the movement that brings the tool to the body (the operator's `place_bar`, or a support's
 linear approach) and cleared by the target of the movement it leaves in (a retreat or a compliant back-off); it never
 changes between movements (B11). A Cindy tool is on the half at its TCP (the male or a ground half); a
 support gripper is on the bar it supports.
@@ -484,7 +484,7 @@ Two groups of checks, run at different times. Every message starts with its chec
 | B7 | An arm motion that moves an attached, unbuilt bar has `grip: closed` on its holders' tools, and several holders move `coupled` | error |
 | B8 | A robot that holds a built bar moves only in a compliant movement whose tool part releases that bar | error |
 | B9 | A tool on a body its arm does not hold allows only a `linear` retreat, until `on` clears | error |
-| B10 | `attached` and `built` change only as the operations allow: a mount or grasp attaches, an insert or a manual step (`ends_on: operator`, a bar placed by hand) builds, an ungrasp releases, an untighten unbuilds | error |
+| B10 | `attached` and `built` change only as the operations allow: placing the bar or a grasp attaches, an insert or a manual step (`ends_on: operator`, a bar placed by hand) builds, an ungrasp releases, an untighten unbuilds | error |
 | B11 | Each movement ends where the next one starts (by definition for `target: null`), across actions in `schedule` order | error |
 | B12 | A hold is released only after every bar in its `supports_until` is built | error |
 | | **Geometry, with robot models** | |
@@ -533,7 +533,7 @@ viewers also use without PyBullet:
 | Process / scene | compas_fab |
 |---|---|
 | Acting robot URDF + SRDF | `RobotCell.robot_model`, `robot_semantics` |
-| Tool of the acting robot | `ToolModel` keyed by its tool id, `frame` = `tcp`; attached to the SRDF group ending at its flange; `touch_links` = mount contacts and the arm's wrist and flange links |
+| Tool of the acting robot | `ToolModel` keyed by its tool id, `frame` = `tcp`; attached to the SRDF group ending at its flange; `touch_links` = the arm's last links (`urdf.TOOL_TOUCHES_ARM_LINKS`, plus any the robot model adds) |
 | Other robot | One `ToolModel` of its URDF, its tools welded to the flanges; at its base with its joints, or parked at (50, 50, 0) when absent or when its base or joints are `null` (`mirror.parked`) |
 | Body | `RigidBody`; primitives triangulated; `is_hidden` when absent (a half with its bar), and the PyBullet mirrors also move it to (−50, −50, −50) |
 | Attached, unbuilt bar and its halves, held by the acting robot | `attached_to_link` = the first holder's link, `attachment_frame` = grasp (× mount offset for a half) |
@@ -555,7 +555,7 @@ the export's per-state attachments and contacts.
 | Half ids | `part`: `T20/Male`, `T20/Female`, `T20/Ground` (every half in the exports is type T20) |
 | `J<a>-<b>_male` and `J<a>-<b>_female` | a mate, when both are in the process (4 male halves in each export have no female: their partner sits on a fake bar) |
 | `G<n>-…_ground` | a mate with the ground body whose walkable polygons are nearest its assembly position seen from above (0 when above one; the nearest in height wins a tie) |
-| Manual mount (`ManualMovement`) | `ends_on: operator`; the bar becomes attached to every flange carrying it or one of its halves (grasps from the export's attachment frames); its target puts the scaffolding tools on the male or ground half at their TCP |
+| Manual placement (`ManualMovement`) | `ends_on: operator`; the bar becomes attached to every flange carrying it or one of its halves (grasps from the export's attachment frames); its target puts the scaffolding tools on the male or ground half at their TCP |
 | `grasp` / `close` | grip → `closed`; a support gripper is on its bar from its close, and the bar becomes attached to it (grasp by forward kinematics) |
 | Action and movement ids | by role (§3.1): `B10_J_joint` → `B10_J`, its insert → `B10_J_insert` |
 | `tighten` (`overlaps_next`) + the insert | one movement, `<action>_insert`: linear, coupled, compliant, `drives: tighten`, `ends_on: tools`; the bar is built at its end |
@@ -567,7 +567,7 @@ the export's per-state attachments and contacts.
 | Movement class | `arms`, `path`, `coupled`, `controller` (`joint_tracking` → `position`, `cartesian_compliant` → `compliant`) |
 | `lm_axis`, `lm_distance_mm`, `retreat_axes_world` | `line`: the axes and distance, else start to target |
 | Notes | per §5.4; planner status dropped |
-| Placeholder bar poses | the bar is not present until mounted |
+| Placeholder bar poses | the bar is not present until placed |
 | Robot states (`robot_configuration`, `ObstacleRobot…`) | as in the export |
 | `trajectory` | refused (`solutions/`) |
 | `WalkableGround.json` (mm) | bodies under `ground/` (m): each walkable polygon extruded 50 mm downward into a slab |

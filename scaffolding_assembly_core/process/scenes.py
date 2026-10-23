@@ -52,8 +52,8 @@ def scene_at(process: Process, movement: Movement, at_end: bool = False) -> Scen
       (at 0), one with `base: null` is not `base_tracked`, so planners refuse it until its owner fills them in.
     - Bodies follow the pose rule (`relations.placement`): an attached, unbuilt bar and its halves are attached to
       the first holder's link; every other body has a world pose. An absent body is disabled.
-    - `touches` hold every allowed contact both ways, derived (`relations.allowed_contacts`); mount contacts are on
-      the robot model.
+    - `touches` hold every allowed contact both ways, derived (`relations.allowed_contacts`); what a tool may touch
+      on its own arm is on the robot model.
 
     Args:
         process: The process.
