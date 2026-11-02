@@ -70,7 +70,9 @@ class CompasFabMirror:
         """
         if gui:
             check_display()
-        client = PyBulletClient("gui" if gui else "direct", verbose=False)
+        # ! verbose=True: otherwise compas_fab silences PyBullet by closing fd 1 for a moment, and a file another thread
+        #   opens then takes fd 1 (a failed plan, or that thread's writes lost). PyBullet's own lines print instead.
+        client = PyBulletClient("gui" if gui else "direct", verbose=True)
         client.__enter__()
         if self.client is not None:
             self.close()

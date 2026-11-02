@@ -101,6 +101,8 @@ def test_mirror_plans_on_the_cell(process):
 
     mirror = CompasFabMirror("robots/cindy")
     try:
+        # Off, compas_fab's stdout redirect races with files other threads open (a monitor's planner threads).
+        assert mirror.client.verbose
         mirror.sync(process.scene_at(_movement(process, "B1_M2_insert")))
         cell = mirror.cell
         assert mirror.client.robot_cell is cell
