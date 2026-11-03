@@ -62,14 +62,17 @@ def test_mate_status(process):
 
 
 def test_allowed_contacts_are_derived(process):
-    """At B2's insert: tools with their whole part, halves with their bars, mates with each other's bar, wheels.
+    """At B2's insert: tools with the body they are on and its bar, halves with their bars, mates with each other's
+    bar, wheels.
 
-    A pending or engaged mate's halves touch each other and each other's bar.
+    A pending or engaged mate's halves touch each other and each other's bar. Cindy's tool is on J1_male, whose mate is
+    pending: it may also touch J1_female, the receiver. Alice's gripper is on B1: it may touch B1, not the halves
+    mounted on it (G1_ground, J1_female).
     """
     contacts = allowed_contacts(process, _start(process, "B2_M3_insert"))
     assert contacts == {
-        ("joints/J1_male", "tools/cindy/AT3L"), ("bars/B2", "tools/cindy/AT3L"),
-        ("bars/B1", "tools/alice/Grip"), ("joints/G1_ground", "tools/alice/Grip"), ("joints/J1_female", "tools/alice/Grip"),
+        ("joints/J1_male", "tools/cindy/AT3L"), ("bars/B2", "tools/cindy/AT3L"), ("joints/J1_female", "tools/cindy/AT3L"),
+        ("bars/B1", "tools/alice/Grip"),
         ("bars/B1", "joints/G1_ground"), ("bars/B1", "joints/J1_female"), ("bars/B2", "joints/J1_male"),
         G1_MATE, J1_MATE, ("bars/B1", "joints/J1_male"), ("bars/B2", "joints/J1_female"),
         ("ground/WG0", "robots/alice/wheel_link"), ("ground/WG0", "robots/cindy/wheel_link"),

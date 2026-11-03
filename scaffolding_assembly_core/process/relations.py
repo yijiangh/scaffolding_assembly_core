@@ -3,9 +3,10 @@ What follows from a state and the process without being stored (format §8): whe
 
 - Where a bar is: built -> its assembly pose; attached and not built -> its first holder's link times the grasp;
   otherwise the pose in `State.poses`, else its assembly pose. A mounted half follows its bar.
-- Allowed contacts: a tool with the whole part it is on, a half with its bar, a pending or engaged mate's halves with
-  each other and with each other's bar, a ground-mated half and every robot's ground links with every ground body.
-  What a tool may touch on its own arm belongs to the robot model (`RobotModel.tool_touches`).
+- Allowed contacts: a tool with the body it is on and that body's bar, and with that half's receiver while their mate
+  is pending or engaged; a half with its bar; a pending or engaged mate's halves with each other and with each other's
+  bar; a ground-mated half and every robot's ground links with every ground body. What a tool may touch on its own arm
+  belongs to the robot model (`RobotModel.tool_touches`).
 """
 
 from __future__ import annotations
@@ -98,12 +99,17 @@ def mate_statuses(process: Process, state: State) -> Dict[Mate, str]:
 def allowed_contacts(process: Process, state: State) -> Set[Tuple[str, str]]:
     """Every allowed contact in a state, each pair sorted (a tool's own arm links excepted: they are the robot model's).
 
-    - A tool on a body may touch that body's whole part: its bar and every half mounted on it.
+    - A tool on a body may touch that body and its bar; never the other halves mounted on that bar.
+    - A tool on a half may touch the half it is mated with (a male's receiver) while the mate is pending or engaged.
     - A half may touch its bar; the halves of a pending or engaged mate each other, and each other's bar.
     - A half mated to a ground body, and every robot's ground links, may touch every present ground body. A robot
       the state leaves out still stands on the floor in the real world.
 
-    ? Collision models are coarser than the parts: a tool's convex hull overlaps the bar it holds by about 1 mm.
+    ? The bar because collision models are coarser than the parts: a tool's convex hull overlaps the bar it holds by
+      about 1 mm (the real meshes are 1.0 mm apart). Nothing measured asks for the other halves on that bar.
+    ? The receiver because a cradle receiver (the subfloor `T20Sub*` females) wraps the male and the tool on it, from
+      the approach to the retreat; its convex hull is a solid brick. The process does not say which receivers are
+      cradles, so the rule holds for every receiver.
 
     Args:
         process: The process.
@@ -118,15 +124,15 @@ def allowed_contacts(process: Process, state: State) -> Set[Tuple[str, str]]:
         if a != b:
             pairs.add((a, b) if a < b else (b, a))
 
-    def part(body: str) -> Tuple[str, ...]:
-        bar = bar_of(process, body)
-        return (bar, *process.halves_of(bar)) if bar is not None else (body,)
-
     grounds = [body for body in state.present if body.startswith(GROUND_PREFIX)]
+    tools_on: Dict[str, Set[str]] = {}
     for tool, tool_state in state.tools.items():
         if tool_state is not None and tool_state.on is not None and is_present(process, state, tool_state.on):
-            for body in part(tool_state.on):
-                add(tool, body)
+            tools_on.setdefault(tool_state.on, set()).add(tool)
+            add(tool, tool_state.on)
+            bar = bar_of(process, tool_state.on)
+            if bar is not None:
+                add(tool, bar)
     for body_id, body in process.bodies.items():
         if body.mount is not None and is_present(process, state, body_id):
             add(body_id, body.mount)
@@ -136,6 +142,8 @@ def allowed_contacts(process: Process, state: State) -> Set[Tuple[str, str]]:
             for side, other in (mate, mate[::-1]):
                 if side.startswith(HALF_PREFIX) and other.startswith(HALF_PREFIX):
                     add(side, process.bodies[other].mount)
+                    for tool in tools_on.get(side, ()):
+                        add(tool, other)
         for side, other in (mate, mate[::-1]):
             if side.startswith(HALF_PREFIX) and other.startswith(GROUND_PREFIX) and is_present(process, state, side):
                 for ground in grounds:

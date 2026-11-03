@@ -116,7 +116,9 @@ def test_hold_scenes(process):
     solve, release = hold_scenes(process, "B1_H_hold")
     assert solve.bodies["bars/B1"].enabled and solve.bodies["bars/B2"].placement == Pose((2.0, 0.0, 0.1))
     assert isinstance(solve.bodies["bars/B1"].placement, Pose)
-    assert "tools/alice/Grip" in solve.bodies["joints/J1_female"].touches
+    # * Her grip may touch the bar it is on, not the halves mounted on it: J1_female is an obstacle.
+    assert "tools/alice/Grip" in solve.bodies["bars/B1"].touches
+    assert "tools/alice/Grip" not in solve.bodies["joints/J1_female"].touches
     assert isinstance(release.bodies["bars/B2"].placement, Pose) and release.bodies["bars/B2"].placement != Pose(
         (2.0, 0.0, 0.1))
     with pytest.raises(ValueError):

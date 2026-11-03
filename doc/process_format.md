@@ -163,7 +163,7 @@ solution while the process is still in memory. Readers never match by id alone:
 | `pose_in_tcp` | Pose | halves only | For a half a tool acts on: the half's pose in the frame of the tool centre point on it (identity when the two frames coincide; a `T20/Ground` half sits turned 180° about z). Absent: no tool goes on this half. B14 checks grasps against it. |
 
 The offset of a half on its bar follows from the two assembly poses. Bars do not list their halves:
-`Process.halves_of(bar)`. A bar with its mounted halves moves as one piece ("the whole part" in §8.4); it is not stored. A body under `ground/` is walkable.
+`Process.halves_of(bar)`. A bar with its mounted halves moves as one piece; it is not stored. A body under `ground/` is walkable.
 
 ### 4.4 Shape
 
@@ -380,15 +380,23 @@ Derived, never stored (`relations.allowed_contacts`):
 
 | Rule | Derived from |
 |---|---|
-| A tool may touch the whole part it is on: the bar and every half mounted on it | `on`, `mount` |
+| A tool may touch the body it is on and that body's bar, never the other halves mounted on the bar | `on`, `mount` |
+| A tool on a half may touch the half it is mated with (a male's receiver) while the mate is pending or engaged | `on`, `mates`, `built`, `attached` |
 | A half may touch the bar it is mounted on | `mount` |
 | The halves of a pending or engaged mate may touch each other, and each other's bar | `mates`, `built`, `attached` |
 | A half mated to a ground body may touch every present `ground/` body | `mates`, the body's prefix |
 | A robot's ground links may touch any present `ground/` body, also where the state leaves the robot out (it still stands on the floor) | `ground_links`, the body's prefix |
 | A tool may touch the last links of the arm it is mounted on | the flange it is mounted on (not stored: `urdf.TOOL_TOUCHES_ARM_LINKS`) |
 
-The part rules are as wide as the parts because collision models are coarser than the parts: compas_fab checks each
-tool as one convex hull, which overlaps the bar it holds by about 1 mm (the real meshes are 1.0 mm apart).
+A tool may touch the bar because collision models are coarser than the parts: compas_fab checks each tool as one
+convex hull, which overlaps the bar it holds by about 1 mm (the real meshes are 1.0 mm apart). The other halves on that
+bar stay obstacles: no measurement asks for them, and a gripper on one of them is a real clash. (Until 2026-11-03 a tool
+could touch every half on the bar; the probes behind decision #1 of 2026-10-09 measured only the bar.)
+
+A tool may touch its half's receiver because a cradle receiver (the subfloor `T20Sub*` females) wraps the male and the
+tool on it from the approach to the retreat, and its convex hull is a solid brick. The process does not say which
+receivers are cradles, so the rule holds for every receiver. A receiver on the tool's own bar, waiting for a later bar,
+stays an obstacle.
 
 ## 9. Writer and producer
 
