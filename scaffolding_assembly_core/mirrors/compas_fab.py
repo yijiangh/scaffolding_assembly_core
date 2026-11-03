@@ -9,9 +9,11 @@ is a fast copy of both for searches. `lend` hands the planner, CC.6 included, to
 `set_gui(True)` shows the world in PyBullet's own window (one per process) for debugging.
 
 - ! One thread only: create, sync, query and lend a mirror on the same thread.
-- ! Every contact is a collision unless the scene allows it (`touches`, a holder), between other robots and bodies too.
+- ! Every contact of the acting robot, its tools or what it holds is a collision unless the scene allows it
+  (`touches`, a holder). Other robots stand still like static bodies and are never checked against them, nor
+  against each other.
 - ! compas_fab allows only whole tools, and another robot is one tool: a contact allowed with any link or tool of
-  another robot allows that whole robot. Such pairs never move while this robot plans: only the start check is coarse.
+  another robot allows that whole robot.
 - ! compas_fab builds each collision mesh as its convex hull.
 - ! compas_fab only skips a hidden body in its own checks and leaves it where it last stood: `sync` moves it to
   HIDDEN_POSITION.

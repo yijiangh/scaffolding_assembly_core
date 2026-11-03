@@ -539,6 +539,7 @@ viewers also use without PyBullet:
 | Attached, unbuilt bar and its halves, held by the acting robot | `attached_to_link` = the first holder's link, `attachment_frame` = grasp (× mount offset for a half) |
 | Held by another robot, or built | stationary at its world pose |
 | Derived contacts (§8.4) | `touch_links` (acting robot links) and `touch_bodies` (bodies, tools, other robots) |
+| Other robots vs stationary bodies | never checked: both stand still, so every body not attached to one of the acting robot's links lists every other robot in `touch_bodies` (compas_fab's CC.5 skips only allowed pairs) |
 | The acting robot's tools vs other robots and each other | CC.6, added by the mirror (`with_tool_pairs`), skipped with compas_fab's `_skip_cc2` |
 
 Other robots are one tool model each, and compas_fab's own checks (CC.1 to CC.5) never pair a tool with a tool: without

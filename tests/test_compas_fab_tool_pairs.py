@@ -1,8 +1,9 @@
-"""CC.6 in the compas_fab mirror: the acting robot's tools against other robots and against each other.
+"""Other robots in the compas_fab mirror: checked against what moves with the acting robot, never against static bodies.
 
 compas_fab never checks a tool against a tool, and another robot is one tool in the cell. The mirror adds that check
-to its planner (`with_tool_pairs`), so `collisions` and the lent planner report it, and `SearchCheck` checks the same
-pairs. The scenes are built by hand: the fake robot with arms reaching 0.5 m (`write_robot_files(reach=0.5)`), Cindy
+(CC.6) to its planner (`with_tool_pairs`), so `collisions` and the lent planner report it, and `SearchCheck` checks
+the same pairs. Another robot stands still like a static body, so compas_fab's tool against body step (CC.5) skips it
+against static bodies but not against a body the acting robot holds. The scenes are built by hand: the fake robot with arms reaching 0.5 m (`write_robot_files(reach=0.5)`), Cindy
 at the origin with AT3L (left, at +X) and AT3R (right, turned back to -X), Alice with a Grip box facing Cindy.
 """
 
@@ -22,7 +23,7 @@ from scaffolding_assembly_core.geometry import BoxShape, Geometry, Pose, TriMesh
 from scaffolding_assembly_core.kinematics import link_pose
 from scaffolding_assembly_core.mirrors.compas_fab import CompasFabMirror, _check_collision_with_tool_pairs
 from scaffolding_assembly_core.robot import RobotModel, RobotObject, Tool, robot_model
-from scaffolding_assembly_core.scene import Body, Scene, world_poses
+from scaffolding_assembly_core.scene import Attachment, Body, Scene, world_poses
 
 CINDY, ALICE = "robots/cindy", "robots/alice"
 TOOL_MESH = TriMesh.from_arrays(TETRA.vertices * 2, TETRA.faces)
@@ -159,3 +160,46 @@ def test_handoff_on_one_bar(models, mirrors):
     _sync(mirrors, _scene(models, (0.6, 0.05, 0.05), bodies=(held,)))
     assert mirrors[CINDY].collisions(full_report=True) == [CINDY_HIT]
     assert mirrors[ALICE].collisions(full_report=True) == [ALICE_HIT]
+
+
+def _held_at(models: Tuple[Path, RobotModel, RobotModel], body_id: str, at: Tuple[float, float, float]) -> Body:
+    """A small box held by Cindy's left flange (touching AT3L), placed at a world point with `RIGHT_AWAY` joints."""
+    urdf = models[0]
+    box = BoxShape((0.04, 0.04, 0.04))
+    offset = compose(invert(link_pose(urdf, Pose(), RIGHT_AWAY, "left_tool0")), Pose(at))
+    return Body(body_id, Geometry((box,), (box,)), Attachment(CINDY, "left_tool0", offset),
+                touches=("tools/cindy/AT3L",))
+
+
+def test_other_robot_in_a_static_body_never_blocks(models, mirrors):
+    """Alice's Grip inside a table far from Cindy: Cindy is clear everywhere, Alice's own check still reports it."""
+    box = BoxShape((0.3, 0.3, 0.3))
+    table = Body("obstacles/table", Geometry((box,), (box,)), Pose(GRIP_FAR))
+    _sync(mirrors, _scene(models, GRIP_FAR, bodies=(table,)))
+    cindy = mirrors[CINDY]
+    assert ALICE in cindy.state.rigid_body_states["obstacles/table"].touch_bodies
+    assert cindy.collisions(full_report=True) == []
+    with cindy.lend() as planner:
+        planner.check_collision(cindy.state, {"full_report": True})
+    cindy.sync(_scene(models, GRIP_FAR, bodies=(table,)))
+    assert cindy.search_check(("left_joint1",))([0.1]) is None
+    assert mirrors[ALICE].collisions(full_report=True) == [("tools/alice/Grip", "obstacles/table")]
+
+
+def test_held_body_against_another_robot_is_checked(models, mirrors):
+    """A body Cindy holds inside Alice's Grip: Cindy's check reports it; the held body allows no other robot."""
+    held = _held_at(models, "bars/B1", GRIP_BESIDE)
+    mirror = mirrors[CINDY]
+    mirror.sync(_scene(models, GRIP_BESIDE, bodies=(held,)))
+    assert mirror.state.rigid_body_states["bars/B1"].touch_bodies == ["tools/cindy/AT3L"]
+    assert mirror.collisions(full_report=True) == [(ALICE, "bars/B1")]
+
+
+def test_held_body_against_a_static_body_is_checked(models, mirrors):
+    """A body Cindy holds inside a table, both touching from the start: still a collision."""
+    held = _held_at(models, "bars/B1", (0.5, -0.4, 0.05))
+    box = BoxShape((0.1, 0.1, 0.1))
+    table = Body("obstacles/table", Geometry((box,), (box,)), Pose((0.5, -0.4, 0.05)))
+    mirror = mirrors[CINDY]
+    mirror.sync(_scene(models, GRIP_FAR, bodies=(held, table)))
+    assert ("bars/B1", "obstacles/table") in mirror.collisions(full_report=True)
