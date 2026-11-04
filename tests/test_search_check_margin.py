@@ -55,3 +55,11 @@ def test_a_margin_larger_than_the_gap_hits(mirror):
 def test_the_margin_clears_once_the_arm_turns_away(mirror):
     """Turned 0.5 rad, the tool is well clear of the box even for a 1 cm margin."""
     assert mirror.search_check(("left_joint1",), 0.01)([0.5]) is None
+
+
+def test_the_self_margin_applies_to_the_robot_against_itself_only(mirror):
+    """The box still hits under a 1 cm margin with no self margin; a 1 m self margin hits the robot's own parts only."""
+    names = ("left_joint1",)
+    assert mirror.search_check(names, 0.01, self_margin=0.0)([0.0]) == ("tools/cindy/AT3L", "obstacles/box")
+    hit = mirror.search_check(names, 0.0, self_margin=1.0)([0.5])
+    assert hit is not None and "obstacles/box" not in hit

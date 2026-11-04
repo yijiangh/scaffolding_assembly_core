@@ -223,17 +223,19 @@ class CompasFabMirror:
         """
         return tool_pairs(self.state.tool_states, self.client.tools_puids)
 
-    def search_check(self, joint_names: Sequence[str], margin: float = 0.0) -> SearchCheck:
+    def search_check(self, joint_names: Sequence[str], margin: float = 0.0,
+                     self_margin: float | None = None) -> SearchCheck:
         """A fast collision check for a search that moves only these joints, from the synced state.
 
         Args:
             joint_names: The joints the search changes, e.g. one arm's six.
             margin: Pairs closer than this, metres, count as hits; 0 checks contact only, as `collisions` does.
+            self_margin: The same for the robot against itself (its links and tools); None uses `margin`.
 
         Returns:
             SearchCheck: Call it with joint values in `joint_names` order.
         """
-        return SearchCheck(self, joint_names, margin)
+        return SearchCheck(self, joint_names, margin, self_margin)
 
     def _our_id(self, model: Link | ToolModel | RigidBody) -> str:
         """Our id of one side of a compas_fab collision pair."""
@@ -360,18 +362,21 @@ class SearchCheck:
       compas_fab offers a fast repeated check.
 
     - ! Only pairs with a moving side are checked: check the start once with `collisions`.
-    - With a `margin`, a pair within it is a hit too, though `collisions` (contact only) finds nothing there.
+    - With a `margin`, a pair within it is a hit too, though `collisions` (contact only) finds nothing there;
+      `self_margin` applies to the robot's own links and tools instead.
     - ! It leaves the world at the last configuration checked; `sync` and `collisions` put it back.
     - ! Build it after each `sync`.
     """
 
-    def __init__(self, mirror: CompasFabMirror, joint_names: Sequence[str], margin: float = 0.0):
+    def __init__(self, mirror: CompasFabMirror, joint_names: Sequence[str], margin: float = 0.0,
+                 self_margin: float | None = None):
         """Resolve the pairs to check for a search over `joint_names`.
 
         Args:
             mirror: A synced mirror; its current state is the one searched from.
             joint_names: The joints the search changes.
             margin: Pairs closer than this, metres, count as hits; 0 checks contact only.
+            self_margin: The same for pairs of the robot's own links and tools; None uses `margin`.
         """
         client, state, model = mirror.client, mirror.state, mirror.cell.robot_model
         self.margin = float(margin)
@@ -423,9 +428,13 @@ class SearchCheck:
                   if (name in carried or tool_name in carried_tools)
                   and body.attached_to_tool != tool_name and tool_name not in body.touch_bodies for part in parts[name]]
         pairs += [(tools[a], tools[b]) for a, b in mirror.tool_pairs() if a in carried_tools or b in carried_tools]
-        #: (body A, body B, getClosestPoints link arguments, names) per pair.
+        # * The robot's own parts: its links and the tools on its flanges.
+        own_parts = {id(part) for part in links.values()} | {id(tools[name]) for name in flanges if name in tools}
+        within = {False: self.margin, True: self.margin if self_margin is None else float(self_margin)}
+        #: (body A, body B, getClosestPoints link arguments, names, margin) per pair.
         self._pairs = [(a.body, b.body, {**({"linkIndexA": a.link} if a.link is not None else {}),
-                                         **({"linkIndexB": b.link} if b.link is not None else {})}, (a.name, b.name))
+                                         **({"linkIndexB": b.link} if b.link is not None else {})}, (a.name, b.name),
+                        within[id(a) in own_parts and id(b) in own_parts])
                        for a, b in dict.fromkeys(pairs)]
 
     def __call__(self, values: Sequence[float]) -> tuple[str, str] | None:
@@ -437,7 +446,7 @@ class SearchCheck:
         Returns:
             tuple[str, str] | None: The first pair hit, as our ids; None if clear.
         """
-        client_id, margin = self._client_id, self.margin
+        client_id = self._client_id
         for joint, value in zip(self._joints, values):
             p.resetJointState(self._robot, joint, float(value), physicsClientId=client_id)
         for bodies, link, (position, orientation) in self._carried:
@@ -445,7 +454,7 @@ class SearchCheck:
             world = p.multiplyTransforms(state[4], state[5], position, orientation)
             for body in bodies:
                 p.resetBasePositionAndOrientation(body, *world, physicsClientId=client_id)
-        for body_a, body_b, links, names in self._pairs:
+        for body_a, body_b, links, names, margin in self._pairs:
             if p.getClosestPoints(body_a, body_b, margin, physicsClientId=client_id, **links):
                 return names
         return None
