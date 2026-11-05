@@ -161,3 +161,12 @@ def test_seeded_fills_in_what_the_process_leaves_open(process):
     before = dict(scene.robots["robots/cindy"].joints)
     seeded(scene, "robots/cindy", {"left_joint1": 0.4})
     assert scene.robots["robots/cindy"].joints == before
+
+
+def test_scene_at_allows_the_contacts_its_movement_ends_in(process):
+    """Alice's approach ends with her grip on B1: it may touch B1 on the way in, not the halves mounted on it."""
+    approach = _movement(process, "B1_H_M0_approach")
+    assert approach.start.tools["tools/alice/Grip"].on is None, "the start alone allows no grip contact"
+    scene = process.scene_at(approach)
+    assert "tools/alice/Grip" in scene.bodies["bars/B1"].touches
+    assert "tools/alice/Grip" not in scene.bodies["joints/J1_female"].touches

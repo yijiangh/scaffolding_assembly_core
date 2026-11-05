@@ -388,6 +388,11 @@ Derived, never stored (`relations.allowed_contacts`):
 | A robot's ground links may touch any present `ground/` body, also where the state leaves the robot out (it still stands on the floor) | `ground_links`, the body's prefix |
 | A tool may touch the last links of the arm it is mounted on | the flange it is mounted on (not stored: `urdf.TOOL_TOUCHES_ARM_LINKS`) |
 
+A scene of a movement (`scene_at`) holds the contacts allowed in its start state and in its end state (the start
+with the target laid over it): a movement may touch what it starts or ends in contact with. A gripper whose
+target puts it `on` a bar may touch that bar as it closes in, though its start state has it on nothing; every other
+body stays an obstacle. The states themselves stay as they are: `on` changes only where the movement ends.
+
 A tool may touch the bar because collision models are coarser than the parts: compas_fab checks each tool as one
 convex hull, which overlaps the bar it holds by about 1 mm (the real meshes are 1.0 mm apart). The other halves on that
 bar stay obstacles: no measurement asks for them, and a gripper on one of them is a real clash. (Until 2026-11-03 a tool

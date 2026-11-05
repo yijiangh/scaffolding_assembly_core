@@ -17,6 +17,7 @@ from ..ids import split_link_id
 from ..kinematics import link_pose
 from ..robot import RobotModel, RobotObject, Tool, robot_model
 from ..scene import Attachment, Body, Scene, world_poses
+from .plan_check import end_state
 from .relations import allowed_contacts, is_present, placement
 from .types import Process, Holder, Movement, State
 
@@ -52,8 +53,10 @@ def scene_at(process: Process, movement: Movement, at_end: bool = False) -> Scen
       (at 0), one with `base: null` is not `base_tracked`, so planners refuse it until its owner fills them in.
     - Bodies follow the pose rule (`relations.placement`): an attached, unbuilt bar and its halves are attached to
       the first holder's link; every other body has a world pose. An absent body is disabled.
-    - `touches` hold every allowed contact both ways, derived (`relations.allowed_contacts`); what a tool may touch
-      on its own arm is on the robot model.
+    - `touches` hold every contact allowed during the movement, both ways: those of its start and of its end
+      (`relations.allowed_contacts`, `plan_check.end_state`), so a movement may touch what it ends in contact with,
+      e.g. a gripper closing in on the bar its target puts it on. What a tool may touch on its own arm is on the
+      robot model.
 
     Args:
         process: The process.
@@ -65,7 +68,7 @@ def scene_at(process: Process, movement: Movement, at_end: bool = False) -> Scen
         Scene: A new scene, `tick` -1.
     """
     target = movement.target.joints if at_end and movement.target is not None else None
-    return _scene(process, movement.start, target)
+    return _scene(process, movement.start, target, also_contacts_of=end_state(movement))
 
 
 def scene_after(process: Process, bar: str) -> Scene:
@@ -94,8 +97,12 @@ def scene_after(process: Process, bar: str) -> Scene:
     return _scene(process, last.start, last.target.joints if last.target is not None else None)
 
 
-def _scene(process: Process, state: State, target_joints: Optional[Dict[str, Dict[str, float]]] = None) -> Scene:
-    """A new scene of one process state; `target_joints` (robot id -> joints) override the state's."""
+def _scene(process: Process, state: State, target_joints: Optional[Dict[str, Dict[str, float]]] = None,
+           also_contacts_of: Optional[State] = None) -> Scene:
+    """A new scene of one process state; `target_joints` (robot id -> joints) override the state's.
+
+    `also_contacts_of`: another state whose allowed contacts the bodies get too, e.g. the movement's end.
+    """
     robots: Dict[str, RobotObject] = {}
     for robot_id, spec in process.robots.items():
         model = process_model(process, robot_id)
@@ -112,7 +119,10 @@ def _scene(process: Process, state: State, target_joints: Optional[Dict[str, Dic
 
     # * Allowed contacts are derived, never stored: both ways, on every body that takes part.
     contacts: Dict[str, Set[str]] = {}
-    for a, b in allowed_contacts(process, state):
+    pairs = allowed_contacts(process, state)
+    if also_contacts_of is not None:
+        pairs |= allowed_contacts(process, also_contacts_of)
+    for a, b in pairs:
         contacts.setdefault(a, set()).add(b)
         contacts.setdefault(b, set()).add(a)
 
