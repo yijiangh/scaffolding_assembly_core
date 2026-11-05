@@ -224,18 +224,20 @@ class CompasFabMirror:
         return tool_pairs(self.state.tool_states, self.client.tools_puids)
 
     def search_check(self, joint_names: Sequence[str], margin: float = 0.0,
-                     self_margin: float | None = None) -> SearchCheck:
+                     self_margin: float | None = None,
+                     pair_margins: Mapping[frozenset[str], float] | None = None) -> SearchCheck:
         """A fast collision check for a search that moves only these joints, from the synced state.
 
         Args:
             joint_names: The joints the search changes, e.g. one arm's six.
             margin: Pairs closer than this, metres, count as hits; 0 checks contact only, as `collisions` does.
             self_margin: The same for the robot against itself (its links and tools); None uses `margin`.
+            pair_margins: The margin of single pairs, by the pair's two ids, in place of the two above.
 
         Returns:
             SearchCheck: Call it with joint values in `joint_names` order.
         """
-        return SearchCheck(self, joint_names, margin, self_margin)
+        return SearchCheck(self, joint_names, margin, self_margin, pair_margins)
 
     def _our_id(self, model: Link | ToolModel | RigidBody) -> str:
         """Our id of one side of a compas_fab collision pair."""
@@ -363,13 +365,13 @@ class SearchCheck:
 
     - ! Only pairs with a moving side are checked: check the start once with `collisions`.
     - With a `margin`, a pair within it is a hit too, though `collisions` (contact only) finds nothing there;
-      `self_margin` applies to the robot's own links and tools instead.
+      `self_margin` applies to the robot's own links and tools instead, and `pair_margins` to single pairs.
     - ! It leaves the world at the last configuration checked; `sync` and `collisions` put it back.
     - ! Build it after each `sync`.
     """
 
     def __init__(self, mirror: CompasFabMirror, joint_names: Sequence[str], margin: float = 0.0,
-                 self_margin: float | None = None):
+                 self_margin: float | None = None, pair_margins: Mapping[frozenset[str], float] | None = None):
         """Resolve the pairs to check for a search over `joint_names`.
 
         Args:
@@ -377,6 +379,8 @@ class SearchCheck:
             joint_names: The joints the search changes.
             margin: Pairs closer than this, metres, count as hits; 0 checks contact only.
             self_margin: The same for pairs of the robot's own links and tools; None uses `margin`.
+            pair_margins: The margin of single pairs, by the pair's two ids, e.g.
+                {frozenset(("tools/cindy/AT3L", "obstacles/box")): 0.002}, in place of the two above.
         """
         client, state, model = mirror.client, mirror.state, mirror.cell.robot_model
         self.margin = float(margin)
@@ -431,10 +435,11 @@ class SearchCheck:
         # * The robot's own parts: its links and the tools on its flanges.
         own_parts = {id(part) for part in links.values()} | {id(tools[name]) for name in flanges if name in tools}
         within = {False: self.margin, True: self.margin if self_margin is None else float(self_margin)}
+        single = {key: float(value) for key, value in (pair_margins or {}).items()}
         #: (body A, body B, getClosestPoints link arguments, names, margin) per pair.
         self._pairs = [(a.body, b.body, {**({"linkIndexA": a.link} if a.link is not None else {}),
                                          **({"linkIndexB": b.link} if b.link is not None else {})}, (a.name, b.name),
-                        within[id(a) in own_parts and id(b) in own_parts])
+                        single.get(frozenset((a.name, b.name)), within[id(a) in own_parts and id(b) in own_parts]))
                        for a, b in dict.fromkeys(pairs)]
 
     def __call__(self, values: Sequence[float]) -> tuple[str, str] | None:
@@ -446,6 +451,33 @@ class SearchCheck:
         Returns:
             tuple[str, str] | None: The first pair hit, as our ids; None if clear.
         """
+        client_id = self._pose(values)
+        for body_a, body_b, links, names, margin in self._pairs:
+            if p.getClosestPoints(body_a, body_b, margin, physicsClientId=client_id, **links):
+                return names
+        return None
+
+    def distances(self, values: Sequence[float]) -> dict[tuple[str, str], float]:
+        """Every pair closer than its margin at these joint values, with how close it is.
+
+        Args:
+            values: Joint values, in the order of the joint names given.
+
+        Returns:
+            dict[tuple[str, str], float]: Our ids of each pair -> its distance, metres, as PyBullet measures it (each
+            convex shape padded by about 1 mm); 0 for a pair in contact. Empty if every pair is clear.
+        """
+        client_id = self._pose(values)
+        found: dict[tuple[str, str], float] = {}
+        for body_a, body_b, links, names, margin in self._pairs:
+            points = p.getClosestPoints(body_a, body_b, margin, physicsClientId=client_id, **links)
+            if points:
+                # ? A body made of several parts appears once per part: keep the closest.
+                found[names] = min(found.get(names, margin), max(0.0, min(point[8] for point in points)))
+        return found
+
+    def _pose(self, values: Sequence[float]) -> int:
+        """Set the searched joints and move what they carry; the PyBullet client id."""
         client_id = self._client_id
         for joint, value in zip(self._joints, values):
             p.resetJointState(self._robot, joint, float(value), physicsClientId=client_id)
@@ -454,7 +486,4 @@ class SearchCheck:
             world = p.multiplyTransforms(state[4], state[5], position, orientation)
             for body in bodies:
                 p.resetBasePositionAndOrientation(body, *world, physicsClientId=client_id)
-        for body_a, body_b, links, names, margin in self._pairs:
-            if p.getClosestPoints(body_a, body_b, margin, physicsClientId=client_id, **links):
-                return names
-        return None
+        return client_id

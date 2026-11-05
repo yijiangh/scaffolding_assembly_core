@@ -63,3 +63,23 @@ def test_the_self_margin_applies_to_the_robot_against_itself_only(mirror):
     assert mirror.search_check(names, 0.01, self_margin=0.0)([0.0]) == ("tools/cindy/AT3L", "obstacles/box")
     hit = mirror.search_check(names, 0.0, self_margin=1.0)([0.5])
     assert hit is not None and "obstacles/box" not in hit
+
+
+def test_a_pair_margin_replaces_the_margin_of_that_pair_only(mirror):
+    """Under a 1 cm margin the box hits; given its own 2 mm, it is clear, and every other pair keeps the 1 cm."""
+    names = ("left_joint1",)
+    pair = frozenset(("tools/cindy/AT3L", "obstacles/box"))
+    assert mirror.search_check(names, 0.01, pair_margins={pair: GAP - 0.001})([0.0]) is None
+    assert mirror.search_check(names, 0.01, pair_margins={pair: 0.01})([0.0]) == ("tools/cindy/AT3L", "obstacles/box")
+    # * The robot against itself still keeps the 1 m self margin: the box's own margin changes nothing there.
+    hit = mirror.search_check(names, 0.0, self_margin=1.0, pair_margins={pair: 0.0})([0.5])
+    assert hit is not None and "obstacles/box" not in hit
+
+
+def test_distances_lists_the_pairs_within_their_margin_and_how_close(mirror):
+    """At the start only the tool and the box are within 1 cm, at the measured gap; turned away, nothing is."""
+    check = mirror.search_check(("left_joint1",), 0.01, self_margin=0.0)
+    close = check.distances([0.0])
+    assert list(close) == [("tools/cindy/AT3L", "obstacles/box")]
+    assert close[("tools/cindy/AT3L", "obstacles/box")] == pytest.approx(GAP, abs=5e-4)
+    assert check.distances([0.5]) == {}
