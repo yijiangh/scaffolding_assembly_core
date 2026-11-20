@@ -225,7 +225,8 @@ class CompasFabMirror:
 
     def search_check(self, joint_names: Sequence[str], margin: float = 0.0,
                      self_margin: float | None = None,
-                     pair_margins: Mapping[frozenset[str], float] | None = None) -> SearchCheck:
+                     pair_margins: Mapping[frozenset[str], float] | None = None,
+                     base_moves: bool = False) -> SearchCheck:
         """A fast collision check for a search that moves only these joints, from the synced state.
 
         Args:
@@ -233,11 +234,15 @@ class CompasFabMirror:
             margin: Pairs closer than this, metres, count as hits; 0 checks contact only, as `collisions` does.
             self_margin: The same for the robot against itself (its links and tools); None uses `margin`.
             pair_margins: The margin of single pairs, by the pair's two ids, in place of the two above.
+            base_moves: Count every link of the robot as moving, as for a search that also moves its base (synced
+                anew for each base): then the robot's links are checked against the scene too, not only what the
+                joints move. ! A body held by the robot's base with no link (`Attachment.link` None) is still
+                checked only as a standing body, against the robot.
 
         Returns:
             SearchCheck: Call it with joint values in `joint_names` order.
         """
-        return SearchCheck(self, joint_names, margin, self_margin, pair_margins)
+        return SearchCheck(self, joint_names, margin, self_margin, pair_margins, base_moves)
 
     def _our_id(self, model: Link | ToolModel | RigidBody) -> str:
         """Our id of one side of a compas_fab collision pair."""
@@ -371,7 +376,8 @@ class SearchCheck:
     """
 
     def __init__(self, mirror: CompasFabMirror, joint_names: Sequence[str], margin: float = 0.0,
-                 self_margin: float | None = None, pair_margins: Mapping[frozenset[str], float] | None = None):
+                 self_margin: float | None = None, pair_margins: Mapping[frozenset[str], float] | None = None,
+                 base_moves: bool = False):
         """Resolve the pairs to check for a search over `joint_names`.
 
         Args:
@@ -381,6 +387,7 @@ class SearchCheck:
             self_margin: The same for pairs of the robot's own links and tools; None uses `margin`.
             pair_margins: The margin of single pairs, by the pair's two ids, e.g.
                 {frozenset(("tools/cindy/AT3L", "obstacles/box")): 0.002}, in place of the two above.
+            base_moves: Every link counts as moving (see `CompasFabMirror.search_check`).
         """
         client, state, model = mirror.client, mirror.state, mirror.cell.robot_model
         self.margin = float(margin)
@@ -389,14 +396,21 @@ class SearchCheck:
         self._joints = [client.robot_joint_puids[name] for name in joint_names]
         own = mirror.robot_id
 
-        # * What moves: every link below a searched joint, and the bodies and tools attached to those links.
-        moving = set().union(*(subtree(model, model.get_joint_by_name(name).child.link) for name in joint_names))
+        # * What moves: every link below a searched joint (every link, when the base moves too), and the bodies and
+        #   tools attached to those links.
+        #   `moved` is what the searched joints move (and `_pose` re-poses); `moving` is what the pairs count as
+        #   moving, every link when the base moves too.
+        moved = set().union(*(subtree(model, model.get_joint_by_name(name).child.link) for name in joint_names))
+        moving = set(client.robot_link_puids) if base_moves else moved
         bodies = {name: body for name, body in state.rigid_body_states.items()
                   if not body.is_hidden and name in client.rigid_bodies_puids}
         carried = {name for name, body in bodies.items() if body.attached_to_link in moving}
-        #: (PyBullet parts, link index, attachment as (position, quaternion)) of each carried body.
+        #: (PyBullet parts, link index, attachment as (position, quaternion)) of each body the joints carry.
+        # ? Only those: a body on a link the joints do not move stays where the sync put it (the root link, index -1,
+        #   has no link state to pose it from).
         self._carried = [(client.rigid_bodies_puids[name], client.robot_link_puids[bodies[name].attached_to_link],
-                          pose_from_frame(bodies[name].attachment_frame)) for name in carried]
+                          pose_from_frame(bodies[name].attachment_frame)) for name in carried
+                         if bodies[name].attached_to_link in moved]
         # ? compas_fab placed the acting robot's tools at `sync`: keep each where it sits in its flange's frame.
         flanges = {name: mirror.cell.get_end_effector_link_name(tool.attached_to_group)
                    for name, tool in state.tool_states.items() if tool.attached_to_group is not None}
@@ -404,7 +418,7 @@ class SearchCheck:
                          if flange in moving and not state.tool_states[name].is_hidden}
         self._carried += [([client.tools_puids[name]], client.robot_link_puids[flanges[name]],
                            _offset(self._client_id, self._robot, client.robot_link_puids[flanges[name]],
-                                   client.tools_puids[name])) for name in carried_tools]
+                                   client.tools_puids[name])) for name in carried_tools if flanges[name] in moved]
 
         # ? Links without collision shapes (tool0, flange, …) never hit anything: leave them out.
         links = {name: _Part(self._robot, index, f"{own}/{name}") for name, index in client.robot_link_puids.items()
@@ -457,23 +471,27 @@ class SearchCheck:
                 return names
         return None
 
-    def distances(self, values: Sequence[float]) -> dict[tuple[str, str], float]:
+    def distances(self, values: Sequence[float], signed: bool = False) -> dict[tuple[str, str], float]:
         """Every pair closer than its margin at these joint values, with how close it is.
 
         Args:
             values: Joint values, in the order of the joint names given.
+            signed: Give a pair in contact minus how deep the two overlap, instead of 0. PyBullet's closest points
+                between two convex shapes: a negative distance is their penetration depth.
 
         Returns:
             dict[tuple[str, str], float]: Our ids of each pair -> its distance, metres, as PyBullet measures it (each
-            convex shape padded by about 1 mm); 0 for a pair in contact. Empty if every pair is clear.
+            convex shape padded by about 1 mm); 0 for a pair in contact, or below 0 with `signed`: two parts that just
+            touch read -0.002, 5 mm into each other -0.007. Empty if every pair is clear.
         """
         client_id = self._pose(values)
+        floor = float("-inf") if signed else 0.0
         found: dict[tuple[str, str], float] = {}
         for body_a, body_b, links, names, margin in self._pairs:
             points = p.getClosestPoints(body_a, body_b, margin, physicsClientId=client_id, **links)
             if points:
-                # ? A body made of several parts appears once per part: keep the closest.
-                found[names] = min(found.get(names, margin), max(0.0, min(point[8] for point in points)))
+                # ? A body made of several parts appears once per part: keep the closest (the deepest overlap).
+                found[names] = min(found.get(names, margin), max(floor, min(point[8] for point in points)))
         return found
 
     def _pose(self, values: Sequence[float]) -> int:
