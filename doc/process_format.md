@@ -280,6 +280,21 @@ planner's output inside the process (against principle 3) and stores one fact tw
 The price: the two drift apart when a bar, a joint or a tool moves after the solve. B15 detects exactly that and
 reports stale IK.
 
+**Joint space.** Every joint value a process writes, and every planner and IK solve, stays within
+`urdf.joint_limits`: the URDF's limits, within the UR controller's own (`urdf.UR_JOINT_LIMITS`), and each shoulder
+lift within −270° to +90° (`urdf.SHOULDER_LIFT_RANGE`). At +90°, the same pose as −270°, the upper arm points down
+into the platform and no path crosses it: a lift a whole turn outside the window is the same pose, but out of reach.
+Write it inside (`urdf.shoulder_lift_in_range`). B16 warns of one outside; a reader may move them all inside
+(`process.joint_range.lifts_in_range`), as the monitor does on load.
+
+**At execution, with a measured base.** The monitor measures each robot's base, which sits a few centimetres from the
+authored one, and plans from there:
+- a free move to `link_poses` (a transfer, a support approach) is solved again by IK at the measured base; the
+  target's `joints` only choose which solution (the nearest);
+- a linear move (an insert, a retreat, a move into or out of a grasp) runs along its line from where the flange is;
+  its target's `joints` are not used;
+- a target that gives only `joints` (home, load, a support robot leaving) is reached as written.
+
 ### 5.4 Notes
 
 `notes` on actions and movements are for people: a key maps to a string, number or boolean, nothing nested. The library
@@ -500,6 +515,8 @@ Two groups of checks, run at different times. Every message starts with its chec
 | B10 | `attached` and `built` change only as the operations allow: placing the bar or a grasp attaches, an insert or a manual step (`ends_on: operator`, a bar placed by hand) builds, an ungrasp releases, an untighten unbuilds | error |
 | B11 | Each movement ends where the next one starts (by definition for `target: null`), across actions in `schedule` order | error |
 | B12 | A hold is released only after every bar in its `supports_until` is built | error |
+| | **Joints** | |
+| B16 | Every shoulder lift a target or a start writes is within −270° to +90° (§5.3, "Joint space"); a start that repeats the value before it is not reported again. Outside it the same pose is out of reach; the message gives the value inside | warning |
 | | **Geometry, with robot models** | |
 | B13 | `arms` name flange links that end an SRDF group of the acting robot | error |
 | B14 | Grasps agree with the geometry. For a tool on a connector half, the grasp is TCP × the half's `pose_in_tcp` × mount offset, and a tool on a half without `pose_in_tcp` is an error; for several holders, forward kinematics agrees whenever joints are known | error |

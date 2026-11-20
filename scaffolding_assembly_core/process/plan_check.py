@@ -1,5 +1,5 @@
 """
-The plan checks B1–B15 of format §11: does the plan make sense? Run on demand: before export, planning or execution.
+The plan checks B1–B16 of format §11: does the plan make sense? Run on demand: before export, planning or execution.
 
 A file can pass the file checks (`validate`) and still fail here, e.g. a half-finished plan saved from Rhino. Errors
 block execution; warnings are reported. Only B13 (SRDF groups), B14 and B15 (forward kinematics) read the robot files.
@@ -20,6 +20,7 @@ from ..geometry import Pose, compose, invert
 from ..ids import split_link_id
 from ..kinematics import chain_joints, link_pose, link_poses
 from ..urdf import srdf_group_tips
+from .joint_range import lifts_in_range
 from .relations import ENGAGED, bar_of, mate_status, mount_offset
 from .types import BAR_PREFIX, GROUND_PREFIX, HALF_PREFIX, Action, Process, Holder, Movement, RobotState, State
 
@@ -67,7 +68,7 @@ class PlanReport:
 
 
 def check_plan(process: Process, *, geometry: bool = True) -> PlanReport:
-    """Run the plan checks B1–B15 on a process that passed the file checks.
+    """Run the plan checks B1–B16 on a process that passed the file checks.
 
     Args:
         process: The process.
@@ -212,6 +213,7 @@ class _PlanChecker:
             if index + 1 < len(self.steps):
                 self.check_chain(action, movement, *self.steps[index + 1])
         self.check_holds()
+        self.check_lifts()
         if geometry:
             self.check_arms()
             self.check_grasps()
@@ -414,6 +416,16 @@ class _PlanChecker:
                 if missing:
                     self.error(12, action.id, f"releases {action.bar} before {missing} are built "
                                               f"({hold.id} supports until them)")
+
+    # --- --- --- --- --- JOINTS (B16) --- --- --- --- ---
+
+    def check_lifts(self) -> None:
+        """B16: shoulder lifts written within SHOULDER_LIFT_RANGE; outside it the same pose is out of reach."""
+        for lift in lifts_in_range(self.process)[1]:
+            self.warn(16, lift.where, f"{lift.robot} {lift.joint} at {np.degrees(lift.before):.1f}\u00b0 is outside "
+                                      f"-270\u00b0 to +90\u00b0: the same pose as {np.degrees(lift.after):.1f}\u00b0, "
+                                      "but out of reach; the exporter writes it inside (urdf.shoulder_lift_in_range), "
+                                      "the monitor moves it on load")
 
     # --- --- --- --- --- GEOMETRY (B13, B14, B15) --- --- --- --- ---
 

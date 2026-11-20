@@ -378,6 +378,75 @@ UR_JOINT_NAMES = ("shoulder_pan_joint", "shoulder_lift_joint", "elbow_joint",
 #: so collision checkers add them themselves.
 TOOL_TOUCHES_ARM_LINKS = ("wrist_2_link", "wrist_3_link", "flange", "tool0")
 
+#: The UR controller's own joint limits, radians, in UR_JOINT_NAMES order: the elbow ±180°, the others ±360°.
+UR_JOINT_LIMITS = (2.0 * np.pi, 2.0 * np.pi, np.pi, 2.0 * np.pi, 2.0 * np.pi, 2.0 * np.pi)
+#: The values a shoulder lift may take, radians. At +90° (the same pose as -270°) the upper arm points down into the
+#: platform and no path crosses it: a lift outside the window gives the same pose but is out of reach.
+SHOULDER_LIFT_RANGE = (-1.5 * np.pi, 0.5 * np.pi)
+#: How far outside the lift window a value may sit and still count as inside, radians: rounding only.
+LIFT_SLACK = 1e-9
+
+
+def ur_joint_index(name: str) -> Optional[int]:
+    """The index in UR_JOINT_NAMES of the UR joint a name ends with (e.g. "left_ur_arm_elbow_joint" -> 2), or None."""
+    return next((index for index, joint in enumerate(UR_JOINT_NAMES) if name == joint or name.endswith(f"_{joint}")),
+                None)
+
+
+def joint_limits(urdf: Path, names: Sequence[str]) -> Tuple[np.ndarray, np.ndarray]:
+    """The joint space every planner and export keeps to: URDF limits, within the UR controller's and the lift window.
+
+    A continuous joint, or one without limits, is bounded only by UR_JOINT_LIMITS (±inf if it is no UR joint); a
+    shoulder lift also by SHOULDER_LIFT_RANGE.
+
+    Args:
+        urdf: The robot's URDF.
+        names: Joint names, e.g. "left_ur_arm_shoulder_lift_joint".
+
+    Returns:
+        tuple[np.ndarray, np.ndarray]: Lower and upper limits, radians, in the order of `names`.
+
+    Raises:
+        KeyError: If the URDF has no joint of one of the names.
+    """
+    joints = load_urdf(urdf).joint_map
+    lower, upper = np.full(len(names), -np.inf), np.full(len(names), np.inf)
+    for index, name in enumerate(names):
+        joint = joints[name]
+        if joint.type != "continuous" and joint.limit is not None:
+            lower[index] = -np.inf if joint.limit.lower is None else joint.limit.lower
+            upper[index] = np.inf if joint.limit.upper is None else joint.limit.upper
+        ur = ur_joint_index(name)
+        bounds = [(-UR_JOINT_LIMITS[ur], UR_JOINT_LIMITS[ur])] if ur is not None else []
+        bounds += [SHOULDER_LIFT_RANGE] if ur == 1 else []
+        for low, high in bounds:
+            lower[index], upper[index] = max(lower[index], low), min(upper[index], high)
+    return lower, upper
+
+
+def shoulder_lift_in_range(names: Sequence[str], values: Sequence[float]) -> List[float]:
+    """The values with each shoulder lift moved by whole turns into SHOULDER_LIFT_RANGE: the same pose, reachable.
+
+    A lift inside the window (up to LIFT_SLACK, both edges included) stays as it is; other joints are untouched.
+
+    Args:
+        names: Joint names.
+        values: Their values, radians, in the same order.
+
+    Returns:
+        list[float]: The values, each lift inside the window.
+    """
+    low, high = SHOULDER_LIFT_RANGE
+    turn = 2.0 * np.pi
+    moved = []
+    for name, value in zip(names, values):
+        value = float(value)
+        if ur_joint_index(name) == 1 and not low - LIFT_SLACK <= value <= high + LIFT_SLACK:
+            value -= turn * float(np.floor((value - low) / turn))
+        moved.append(value)
+    return moved
+
+
 #: Stock ur_description turns both joints below `<arm>_base_link` 180 deg about z.
 STOCK_YAW = np.pi
 

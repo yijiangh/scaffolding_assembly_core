@@ -4,9 +4,11 @@ The shared core of the scaffolding assembly tools, used by the Rhino plugin (`ba
 (`husky_assembly_tamp`) and the monitor (`husky-assembly-teleop`). It holds:
 
 - `process/`: the process format, schema 2.1 (`doc/process_format.md`): `read`, `write`, `validate` (file checks A1–A14),
-  `plan_check.check_plan` (plan checks B1–B15), `relations`, `scenes` (`Process.scene_at`), `solutions`;
-- `geometry`, `ids`, `urdf` (URDFs read with yourdfpy: names, joints, each link's shapes), `kinematics`
-  (`link_pose`, `link_poses`), `robot`, `scene` (`scene_parts`: what a viewer draws);
+  `plan_check.check_plan` (plan checks B1–B16), `joint_range` (shoulder lifts moved into their window), `relations`,
+  `scenes` (`Process.scene_at`), `solutions`;
+- `geometry`, `ids`, `urdf` (URDFs read with yourdfpy: names, joints, each link's shapes; the joint space every planner
+  and export keeps to, `joint_limits`), `kinematics` (`link_pose`, `link_poses`), `robot`, `scene` (`scene_parts`: what
+  a viewer draws);
 - `mirrors/`: a scene in PyBullet or compas_fab, for planners, and its compas_fab cell without PyBullet, for viewers
   (`mirrors.cell.CompasFabCell(robot, visual=True)`) (extra `[mirrors]`);
 - `legacy/`: converts the old compas_fab export into schema 2.1 (extra `[mirrors]` plus `rs_data_structure`).

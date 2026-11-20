@@ -2,7 +2,7 @@
 The process file format, schema 2.1 (doc/process_format.md): the `Process` in memory, and reading, writing and validating.
 
 Not imported here: `process.scenes` (scenes from a process, `Process.scene_at`), `process.plan_check` (the plan checks
-B1–B15) and `process.solutions` (planner results), so `import process` stays free of scenes and robots.
+B1–B16) and `process.solutions` (planner results), so `import process` stays free of scenes and robots.
 
 ! Runs on Python 3.9 (Rhino 8) with numpy, scipy, trimesh and yourdfpy only.
 """
