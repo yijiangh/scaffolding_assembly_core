@@ -56,10 +56,11 @@ start state, its target and the parts that say what moves and how it ends.
 ├── robots/<robot>/robot.urdf, robot.srdf, meshes/…
 ├── source/                      optional: the .3dm, joint_pairs.json, robotic_tools.json it came from (never read)
 ├── solutions/<action id>.json   planner results (§10); never written by the exporter
+├── saved/<action id>.json       bases an operator saved in the monitor; never read by planners
 └── runs/<yyyy-mm-dd_hhmmss>/    reserved for the monitor (§10)
 ```
 
-The library's `write` leaves `source/`, `solutions/` and `runs/` as they are.
+The library's `write` leaves `source/`, `solutions/`, `saved/` and `runs/` as they are.
 
 ## 3. Conventions
 
